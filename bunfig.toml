@@ -1,0 +1,5 @@
+[install]
+linker = "hoisted"
+
+[install.scopes]
+"@luon" = { url = "https://pkg.luon.dev/" }

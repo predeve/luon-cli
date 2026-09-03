@@ -1,0 +1,44 @@
+{
+  "name": "@luon/cli",
+  "version": "0.3.43",
+  "description": "Create, develop, build, and run Luon apps",
+  "keywords": [
+    "luon",
+    "cli",
+    "bun",
+    "full-stack",
+    "developer-tools"
+  ],
+  "homepage": "https://pkg.luon.dev/packages/cli/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/predeve/luon-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/predeve/luon/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://pkg.luon.dev"
+  },
+  "type": "module",
+  "bin": {
+    "luon": "bin/luon.ts"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "dependencies": {
+    "@luon/agent": "0.3.24",
+    "@luon/network": "0.1.0",
+    "@luon/runtime": "0.1.54",
+    "@luon/webview": "0.3.3",
+    "@luon/worker": "0.1.7",
+    "@prisma/dev": "0.25.2",
+    "lucide-static": "1.39.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0"
+  }
+}
