@@ -1,7 +1,8 @@
 {
   "name": "@luon/cli",
-  "version": "0.3.43",
+  "version": "0.3.44",
   "description": "Create, develop, build, and run Luon apps",
+  "license": "MIT",
   "keywords": [
     "luon",
     "cli",

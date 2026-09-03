@@ -212,3 +212,7 @@ Print command usage or versions.
 - [Build and run](https://docs.luon.dev/guide/build-run)
 - [CLI source on GitHub](https://github.com/predeve/luon-cli)
 - [WebView source and releases](https://github.com/predeve/luon-webview)
+
+## License
+
+[MIT](LICENSE) © predeve
