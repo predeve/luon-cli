@@ -1,6 +1,6 @@
 {
   "name": "@luon/cli",
-  "version": "0.3.44",
+  "version": "0.3.61",
   "description": "Create, develop, build, and run Luon apps",
   "license": "MIT",
   "keywords": [
@@ -31,13 +31,16 @@
     "src"
   ],
   "dependencies": {
-    "@luon/agent": "0.3.24",
-    "@luon/network": "0.1.0",
-    "@luon/runtime": "0.1.54",
-    "@luon/webview": "0.3.3",
-    "@luon/worker": "0.1.7",
+    "@luon/agent": "0.3.25",
+    "@luon/network": "0.1.1",
+    "@luon/runtime": "0.1.64",
+    "@luon/webview": "0.3.5",
+    "@luon/worker": "0.1.9",
+    "@prisma/cli-engine": "0.3.0",
     "@prisma/dev": "0.25.2",
-    "lucide-static": "1.39.0"
+    "@prisma/orm-postgres": "8.0.0-rc.8",
+    "lucide-static": "1.39.0",
+    "sharp": "0.35.4"
   },
   "devDependencies": {
     "@types/bun": "^1.4.0"

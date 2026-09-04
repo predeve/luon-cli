@@ -63,7 +63,20 @@ CLI installs WebView and its matching native package so agent install can open t
 
 ### Original App Preview
 
-app install registers the local luon:// launcher so Core can open an App Template in WebView with its original window settings.
+app install registers the local luon:// launcher so Core can open
+`luon://tmp.luon.dev/{id}` in WebView with the App Template's original window
+settings. Without a confirmed launcher, Core uses the browser Preview.
+
+### Portable `.luon` files
+
+An active Lite or Pro account can export any owned WEB, APP, or BOT from My
+Sites or with `luon export <site-id>`. Core builds the authoritative Site. Run
+the resulting file with the system WebView. Every new package uses an
+automatically generated authenticated envelope or an optional 1 to 8 digit
+sharing PIN, and rejects modified bytes. The PIN is a sharing lock rather than
+strong encryption. Program files stay in memory; only local data is
+retained under
+`~/.luon/{type}/{short-id}`.
 
 ## Quick reference
 
@@ -77,9 +90,13 @@ The CLI covers a Site from creation through local operation.
 | luon prepare [path] | Regenerate routes, imports, and types |
 | luon dev [path] | Run local HMR through Agent |
 | luon build [path] | Create a production dist |
+| luon export <site-id> | Export an owned server Site as `.luon` |
 | luon start [path] | Run an existing production build |
 | luon stop / status / logs | Operate an Agent-owned Site |
 | luon update [--check] | Inspect or align Luon packages |
+| luon product.luon | Run a portable package in Luon WebView |
+| luon product.luon --browser | Run it in the default browser |
+| luon product.luon --headless | Run it without a window |
 
 ### Installation and state
 
@@ -93,7 +110,7 @@ Install once globally; keep project source and tool state separate.
 | Other Linux | glibc + GTK3 + WebKitGTK 4.1, or build from source |
 | Account | ~/.luon/account.json |
 | Agent state | ~/.luon/agent |
-| Generated Site files | <site>/.config |
+| Generated Site files | <site>/.build |
 | Production output | <site>/dist |
 
 ### Local interfaces
@@ -106,6 +123,7 @@ Use the terminal or the visual controller for the same local work.
 | Inspect processes and logs | Agent dashboard |
 | Open the dashboard | agent.luon.dev or luon agent open |
 | Open an APP Template | luon:// launcher and WebView |
+| Open a portable Site | Double-click `.luon` or run `luon file.luon` |
 
 ## Examples
 
@@ -193,16 +211,19 @@ Print command usage or versions.
 
 1. Install the CLI globally from the Luon registry.
 2. Use login to connect this computer to the account's assigned Core.
-3. Initialize or enter a Site and generate its .config contracts.
+3. Initialize or enter a Site and generate its .build contracts.
 4. Use dev for HMR or build to create a production dist.
 5. Use start only after a successful production build.
+6. Export `.luon` when the built Site must run without its source folder.
 
 ## Boundaries
 
 - --open is opt-in and browser control is not part of a normal build.
 - prepare, dev, and build may align the Site's latest Luon dependencies.
 - CLI state lives under ~/.luon; workspace logs stay in luon-logs.
-- The CLI account file is private and never enters Site source or .config.
+- The CLI account file is private and never enters Site source or .build.
+- `.luon` keeps mutable data in `~/.luon/{web|app|bot}/{short-id}` and reuses it
+  for later packages with the same Site ID.
 - Use luon help <command> for the installed version's exact options.
 
 ## More documentation

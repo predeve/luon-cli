@@ -3,6 +3,8 @@ export type Command =
   | "app"
   | "build"
   | "dev"
+  | "export"
+  | "file"
   | "help"
   | "init"
   | "login"
@@ -36,7 +38,9 @@ export type Args = {
   open: boolean;
   port?: number;
   root: string;
+  site?: string;
   topic?: Command;
+  view?: "browser" | "headless" | "webview";
   yes: boolean;
 };
 
@@ -45,6 +49,8 @@ const commands = new Set<Command>([
   "app",
   "build",
   "dev",
+  "export",
+  "file",
   "help",
   "init",
   "login",
@@ -149,9 +155,53 @@ function parseVersion(values: string[]): Args {
   };
 }
 
+function parseFile(root: string, values: string[]): Args {
+  let view: Args["view"] = "webview";
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index]!;
+    if (value === "--browser") view = "browser";
+    else if (value === "--headless") view = "headless";
+    else if (value === "--webview") view = "webview";
+    else if (value === "--view") {
+      const next = values[++index];
+      if (!next || !["browser", "headless", "webview"].includes(next)) {
+        throw new Error("--view must be webview, browser, or headless.");
+      }
+      view = next as Args["view"];
+    } else {
+      throw new Error(`Unknown .luon option: ${value}`);
+    }
+  }
+  return {
+    command: "file",
+    open: false,
+    root,
+    view,
+    yes: false,
+  };
+}
+
+function parseExport(values: string[]): Args {
+  if (values.includes("--help")) return {
+    command: "help",
+    open: false,
+    root: ".",
+    topic: "export",
+    yes: false,
+  };
+  const site = values.shift() || "";
+  if (!/^(?:web|app|bot)-[a-z0-9-]{1,64}$/.test(site) || values.length) {
+    throw new Error("Use luon export <site-id>.");
+  }
+  return { command: "export", open: false, root: ".", site, yes: false };
+}
+
 export function parseArgs(raw: string[]): Args {
   const values = [...raw];
   const first = values.shift() || "help";
+  if (first.toLowerCase().endsWith(".luon") || first.startsWith("file:")) {
+    return parseFile(first, values);
+  }
   if (first === "--help") return {
     command: "help",
     open: false,
@@ -184,6 +234,12 @@ export function parseArgs(raw: string[]): Args {
   }
   if (command === "update") return parseUpdate(values);
   if (command === "version") return parseVersion(values);
+  if (command === "file") {
+    const root = values.shift();
+    if (!root) throw new Error("Use luon file <package.luon>.");
+    return parseFile(root, values);
+  }
+  if (command === "export") return parseExport(values);
   if (command === "agent") return parseService(command, values);
   if (command === "app") return parseApp(values);
   if (["login", "logout"].includes(command)) {

@@ -245,7 +245,7 @@ export async function runDev(options: RunOptions) {
   const root = resolve(options.root);
   if (await background("dev", options, root)) return;
   if (process.env.LUON_SKIP_UPDATE !== "1") await updatePackages(root);
-  const dir = resolve(root, process.env.LUON_CONFIG || ".config");
+  const dir = resolve(root, process.env.LUON_CONFIG || ".build");
   const project = process.env.LUON_PROJECT_READY === "1"
     ? { dir, server: resolve(dir, "server.ts") }
     : await import("@luon/runtime/project").then(({ prepareProject }) => (

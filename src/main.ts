@@ -5,6 +5,8 @@ const help: Record<Command, string> = {
   app: "luon app [check|install]",
   build: "luon build [path]",
   dev: "luon dev [path] [--port number] [--open]",
+  export: "luon export <site-id>",
+  file: "luon file <package.luon> [--webview|--browser|--headless]",
   help: "luon help [command]",
   init: "luon init [path] [--yes]",
   login: "luon login",
@@ -32,6 +34,7 @@ function show(topic?: Command) {
     "  luon prepare [path]   Generate Runtime and auto-import files",
     "  luon dev [path]       Run the development server",
     "  luon build [path]     Build for production",
+    "  luon export <site-id> Export a paid account Site as .luon",
     "  luon start [path]     Run the production build",
     "  luon stop [path]      Stop an Agent-managed Site",
     "  luon status [path]    Show a managed Site",
@@ -39,6 +42,7 @@ function show(topic?: Command) {
     "  luon agent [action]   Control local Sites and dashboard",
     "  luon app install      Install the local App launcher",
     "  luon app check        Verify the native WebView package",
+    "  luon product.luon     Run a portable Luon package",
     "  luon update           Update CLI, Agent, Runtime, and Worker",
     "  luon version          Print the CLI version",
     "",
@@ -68,6 +72,14 @@ export async function main(raw: string[]) {
   if (args.command === "app") {
     const { runApp } = await import("./app.ts");
     return runApp(args);
+  }
+  if (args.command === "file") {
+    const { runLuonFile } = await import("./luon-file.ts");
+    return runLuonFile(args);
+  }
+  if (args.command === "export") {
+    const { exportSite } = await import("./export.ts");
+    return exportSite(args.site!);
   }
   if (args.command === "prepare") {
     const { updatePackages } = await import("./packages.ts");

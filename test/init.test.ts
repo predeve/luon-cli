@@ -35,14 +35,14 @@ describe("CLI init", () => {
     });
     expect(pkg.devDependencies.shadcn).toBeUndefined();
     expect(await Bun.file(join(root, "components.json")).exists()).toBeFalse();
-    expect(await Bun.file(join(root, ".config", "components.json")).exists())
+    expect(await Bun.file(join(root, ".build", "components.json")).exists())
       .toBeFalse();
     const tsconfig = await Bun.file(join(root, "tsconfig.json")).json();
     expect(tsconfig.compilerOptions).toMatchObject({
       paths: { "@/*": ["./*"] },
     });
     expect(tsconfig.compilerOptions.baseUrl).toBeUndefined();
-    expect(tsconfig.include).toContain(".config/auto-imports.d.ts");
+    expect(tsconfig.include).toContain(".build/auto-imports.d.ts");
     const ignore = await Bun.file(join(root, ".gitignore")).text();
     expect(ignore).toContain(".preview/");
     const css = await Bun.file(

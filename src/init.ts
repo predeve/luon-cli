@@ -180,8 +180,7 @@ export async function initProject(input: string, yes = false) {
       "node_modules/",
       "db/",
       "dist/",
-      ".config/*",
-      "!.config/template.json",
+      ".build/",
       ".preview/",
       "",
     ].join("\n")),
@@ -189,6 +188,7 @@ export async function initProject(input: string, yes = false) {
       name,
       private: true,
       type: "module",
+      favicon: { autoGenerate: false },
       dependencies: {
         "@luon/rule": "latest",
         "@luon/runtime": "latest",
@@ -220,7 +220,7 @@ export async function initProject(input: string, yes = false) {
         target: "ESNext",
         types: ["bun"],
       },
-      include: [".config/auto-imports.d.ts", "app", "server", "shared"],
+      include: [".build/auto-imports.d.ts", "app", "server", "shared"],
     }, null, 2)}\n`),
     Bun.write(join(root, "app", "layouts", "default.tsx"), [
       "import type { LayoutProps } from \"@luon/runtime\";",
