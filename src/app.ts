@@ -20,6 +20,8 @@ import { readAccount } from "./account.ts";
 import { iconSvg, type IconSource } from "@luon/runtime/favicon";
 import { buildIcon } from "./icon.ts";
 import {
+  cliUpdate,
+  requireCliVersion,
   requireServer,
   showServerIssue,
   warnCliVersion,
@@ -442,6 +444,8 @@ export async function openApp(value: string) {
       && local(page.hostname)))) {
     throw new Error("Luon App Site URL is not secure.");
   }
+  const update = await cliUpdate();
+  if (!await requireCliVersion(manifest.title, update)) return;
   if (body.source === "site"
     && !await requireServer(manifest.title, page.toString())) return;
   const options = viewOptions(manifest, page, undefined, undefined);
@@ -481,7 +485,7 @@ export async function openApp(value: string) {
     viewOptions(manifest, page, icon, statusIcon, icons),
   );
   console.log(`Luon App: running · PID ${child.pid}`);
-  void warnCliVersion();
+  void warnCliVersion(update);
   const error = child.stderr
     ? new Response(child.stderr).text()
     : Promise.resolve("");

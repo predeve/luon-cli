@@ -2,6 +2,13 @@ import { installedVersions } from "./version.ts";
 import { showNotice, showToast } from "./notice.ts";
 
 export type ServerState = "missing" | "ready" | "stopped" | "unavailable";
+export type CliLevel = "major" | "minor" | "patch";
+
+export type CliUpdate = {
+  current: string;
+  latest: string;
+  level: CliLevel;
+};
 
 type Fetcher = (
   input: string | URL | Request,
@@ -78,7 +85,17 @@ export async function latestCli(
   }
 }
 
-export async function warnCliVersion() {
+export function cliLevel(current: string, latest: string): CliLevel | undefined {
+  if (!semver.test(current) || !semver.test(latest)
+    || Bun.semver.order(latest, current) <= 0) return;
+  const before = current.split("-", 1)[0]!.split(".").map(Number);
+  const after = latest.split("-", 1)[0]!.split(".").map(Number);
+  if (before[0] !== after[0]) return "major";
+  if (before[1] !== after[1]) return "minor";
+  return "patch";
+}
+
+export async function cliUpdate(): Promise<CliUpdate | undefined> {
   const current = await installedVersions().then(
     (value) => value.cli,
     () => undefined,
@@ -86,9 +103,31 @@ export async function warnCliVersion() {
   if (!current) return;
   const latest = await latestCli(current);
   if (!latest) return;
+  const level = cliLevel(current, latest);
+  if (!level) return;
+  return { current, latest, level };
+}
+
+export async function requireCliVersion(
+  title: string,
+  update: CliUpdate | undefined,
+) {
+  if (update?.level !== "major") return true;
+  await showNotice({
+    message: `Installed CLI: ${update.current}\nRequired CLI: ${update.latest}`
+      + "\n\nRun luon update before opening this app.",
+    title: `${title} cannot start`,
+    tone: "error",
+  });
+  return false;
+}
+
+export async function warnCliVersion(update: CliUpdate | undefined) {
+  if (update?.level !== "minor") return;
   await showToast({
-    message: `${current} → ${latest}\nRun luon update when convenient.`,
-    title: "Luon CLI update available",
+    message: `${update.current} → ${update.latest}`
+      + "\nRun luon update when convenient.",
+    title: "Luon CLI feature update available",
     tone: "warning",
   });
 }

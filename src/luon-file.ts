@@ -33,9 +33,12 @@ import {
 import { buildIcon } from "./icon.ts";
 import { askPassword } from "./notice.ts";
 import {
+  cliUpdate,
+  requireCliVersion,
   requireServer,
   showInvalidPackage,
   warnCliVersion,
+  type CliUpdate,
 } from "./launch-check.ts";
 
 type LocalDb = {
@@ -443,7 +446,12 @@ async function packageIcons(pkg: LuonFile, root: string, page: URL) {
   };
 }
 
-async function openWindow(pkg: LuonFile, root: string, url: string) {
+async function openWindow(
+  pkg: LuonFile,
+  root: string,
+  url: string,
+  update?: CliUpdate,
+) {
   const page = new URL(url);
   const icons = await packageIcons(pkg, root, page);
   const child = await openView(viewOptions({
@@ -453,7 +461,7 @@ async function openWindow(pkg: LuonFile, root: string, url: string) {
     window: pkg.manifest.app?.window || {},
   }, page, icons.icon, icons.statusIcon, icons.icons));
   console.log(`Luon WebView: running · PID ${child.pid}`);
-  void warnCliVersion();
+  void warnCliVersion(update);
   const code = await child.exited;
   if (code !== 0) {
     const error = child.stderr
@@ -479,6 +487,8 @@ export async function runLuonFile(args: Args) {
       return undefined;
     });
   if (!pkg) return;
+  const update = await cliUpdate();
+  if (!await requireCliVersion(pkg.manifest.title, update)) return;
   if (pkg.manifest.data === "server" && args.view === "headless") {
     throw new Error(
       "A server-backed .luon package must open in WebView or a browser.",
@@ -489,7 +499,7 @@ export async function runLuonFile(args: Args) {
   if (args.view === "webview"
     && await controlViewId(pkg.manifest.id, "show")) {
     console.log(`Luon package: already running · ${pkg.manifest.id}`);
-    await warnCliVersion();
+    await warnCliVersion(update);
     return;
   }
   const root = packageRoot(pkg.manifest);
@@ -501,10 +511,10 @@ export async function runLuonFile(args: Args) {
     console.log(`Luon package: ${pkg.manifest.title} · ${url}`);
     if (args.view === "browser") {
       await openBrowser(url);
-      await warnCliVersion();
+      await warnCliVersion(update);
       return;
     }
-    await openWindow(pkg, root, url);
+    await openWindow(pkg, root, url, update);
     return;
   }
   const files = siteFiles(pkg);
@@ -531,12 +541,12 @@ export async function runLuonFile(args: Args) {
     console.log(`Luon package: ${pkg.manifest.title} · ${url}`);
     if (args.view === "browser") {
       await openBrowser(url);
-      void warnCliVersion();
+      void warnCliVersion(update);
       await waitSignal();
     } else if (args.view === "headless") {
       await waitSignal();
     } else {
-      await openWindow(pkg, root, url);
+      await openWindow(pkg, root, url, update);
     }
   } finally {
     await Promise.resolve(server?.stop(true)).catch(() => undefined);

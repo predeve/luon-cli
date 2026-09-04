@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { latestCli, serverState } from "../src/launch-check.ts";
+import {
+  cliLevel,
+  latestCli,
+  serverState,
+} from "../src/launch-check.ts";
 
 function reply(state: string, status: number) {
   return async () => Response.json({ state }, { status });
@@ -37,5 +41,13 @@ describe("app launch checks", () => {
     expect(await latestCli("0.4.0", request)).toBeUndefined();
     expect(await latestCli("0.5.0", request)).toBeUndefined();
     expect(await latestCli("0.3.56", current)).toBeUndefined();
+  });
+
+  test("classifies CLI updates by semantic version position", () => {
+    expect(cliLevel("0.3.60", "0.3.61")).toBe("patch");
+    expect(cliLevel("0.3.60", "0.4.0")).toBe("minor");
+    expect(cliLevel("0.3.60", "1.0.0")).toBe("major");
+    expect(cliLevel("0.3.60", "0.3.60")).toBeUndefined();
+    expect(cliLevel("1.0.0", "0.9.0")).toBeUndefined();
   });
 });
