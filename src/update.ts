@@ -128,9 +128,10 @@ async function install(target: Versions) {
   const packages = await installTargets(target);
   const child = Bun.spawn([
     process.execPath,
-    "add",
+    "update",
     "--global",
     "--force",
+    "--no-cache",
     "--registry",
     registry,
     ...Object.entries(packages).map(([id, version]) => `${id}@${version}`),
