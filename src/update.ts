@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 
 import { type Versions, versionLine } from "./version.ts";
+import { refreshApps } from "./webview-update.ts";
 
 export type PackageMeta = {
   "dist-tags"?: Record<string, string>;
@@ -158,6 +159,13 @@ async function install(target: Versions) {
     const { version } = await Bun.file(file).json();
     if (version !== expected) {
       throw new Error(`${id}@${version} installed; expected ${expected}.`);
+    }
+    if (id === "@luon/webview-macos-arm64") {
+      const count = await refreshApps(entry);
+      if (count) {
+        console.log(`Updated ${count} cached WebView apps.`
+          + " Close and reopen them.");
+      }
     }
   }
   console.log(Object.entries(packages)
