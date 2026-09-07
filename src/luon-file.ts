@@ -1,11 +1,9 @@
 import {
-  lstat,
+  mkdtemp,
   mkdir,
-  readlink,
-  symlink,
+  rm,
   writeFile,
 } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -17,20 +15,28 @@ import {
   readLuon,
   type LuonFile,
 } from "@luon/runtime/luon-file";
+import type { IconSource } from "@luon/runtime/favicon";
+import type { DbModels } from "@luon/runtime/prisma";
+import {
+  applySeeds,
+  readSeeds,
+  resetSeedSequences,
+} from "@luon/runtime/seed";
 import { controlViewId, openView } from "@luon/webview";
+import { cliCommand, keepPackage } from "./relaunch.ts";
 import {
   startWorker,
   type LocalWorker,
 } from "@luon/worker/local";
 
 import type { Args } from "./args.ts";
+import { cachedLuon, cachedProgram } from "./package-cache.ts";
 import {
   dockIcon,
   iconSource,
   systemIcon,
   viewOptions,
 } from "./app.ts";
-import { buildIcon } from "./icon.ts";
 import { askPassword } from "./notice.ts";
 import {
   cliUpdate,
@@ -52,6 +58,15 @@ type LocalServer = {
 };
 
 const packageFiles = Symbol.for("@luon/package-files");
+
+async function buildIcon(
+  source: string | undefined,
+  platform = process.platform,
+  root?: string,
+) {
+  const icon = await import("./icon.ts");
+  return icon.buildIcon(source, platform, root);
+}
 
 function filePath(value: string) {
   const path = value.startsWith("file:")
@@ -82,17 +97,17 @@ function contentType(path: string) {
   return values[extname(path).toLowerCase()] || "application/octet-stream";
 }
 
-function siteFiles(pkg: LuonFile) {
+export function siteFiles(pkg: LuonFile) {
   const files = new Map<string, Blob>();
   for (const [name, file] of pkg.files) {
     if (!name.startsWith("site/")) continue;
     const path = `/${name.slice("site/".length)}`;
-    files.set(path, new Blob([file], { type: contentType(path) }));
+    files.set(path, file.slice(0, file.size, contentType(path)));
   }
   return files;
 }
 
-function staticServer(files: Map<string, Blob>, port: number) {
+export function staticServer(files: Map<string, Blob>, port: number) {
   return serveLocal({
     fetch(request) {
       const url = new URL(request.url);
@@ -113,129 +128,17 @@ function staticServer(files: Map<string, Blob>, port: number) {
   });
 }
 
-function prismaState(name: string) {
-  if (process.platform === "darwin") {
-    return join(
-      homedir(),
-      "Library",
-      "Application Support",
-      "prisma-dev-nodejs",
-      name,
-    );
-  }
-  if (process.platform === "win32") {
-    const local = process.env.LOCALAPPDATA
-      || join(homedir(), "AppData", "Local");
-    return join(local, "prisma-dev-nodejs", "Data", name);
-  }
-  const local = process.env.XDG_DATA_HOME
-    || join(homedir(), ".local", "share");
-  return join(local, "prisma-dev-nodejs", name);
-}
-
-async function linkDatabase(name: string, target: string) {
-  const link = prismaState(name);
-  await mkdir(target, { mode: 0o700, recursive: true });
-  await mkdir(dirname(link), { mode: 0o700, recursive: true });
-  const info = await lstat(link).catch(() => undefined);
-  if (info?.isSymbolicLink()) {
-    const current = resolve(dirname(link), await readlink(link));
-    if (current === resolve(target)) return;
-  }
-  if (info) {
-    throw new Error(`The local database path is already in use: ${link}`);
-  }
-  await symlink(target, link, process.platform === "win32" ? "junction" : "dir");
-}
-
-async function run(args: string[], root: string, env = process.env) {
-  const child = Bun.spawn(args, {
-    cwd: root,
-    env,
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [code, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  if (code !== 0) {
-    throw new Error(
-      [stderr, stdout].map((value) => value.trim()).filter(Boolean).join("\n")
-        || "The local database update failed.",
-    );
-  }
-}
-
-function dbConfig() {
-  const engine = import.meta.resolve("@prisma/cli-engine");
-  const orm = import.meta.resolve("@prisma/orm-postgres/config");
-  return [
-    `import { definePrismaConfig } from ${JSON.stringify(engine)};`,
-    `import { defineConfig } from ${JSON.stringify(orm)};`,
-    "",
-    "export default definePrismaConfig({",
-    "  orm: defineConfig({",
-    '    contract: new URL("./contract.ts", import.meta.url).pathname,',
-    "    db: { connection: process.env.DATABASE_URL! },",
-    "  }),",
-    "});",
-    "",
-  ].join("\n");
-}
-
 type DbMarker = {
   initial?: Array<{
     file: string;
     models: string[];
     source?: string;
   }>;
-  models?: Record<string, unknown>;
+  models?: DbModels;
 };
 
-function initialSource(root: string, marker: DbMarker) {
-  const initial = (marker.initial || []).filter((item) => item.source);
-  const orm = import.meta.resolve("@prisma/orm-postgres/runtime");
-  const seed = import.meta.resolve("@luon/runtime/seed");
-  return [
-    `import postgres from ${JSON.stringify(orm)};`,
-    `import { applySeeds, readSeeds, resetSeedSequences } from ${JSON.stringify(
-      seed,
-    )};`,
-    `import contractJson from ${JSON.stringify(
-      pathToFileURL(join(root, "contract.json")).href,
-    )} with { type: "json" };`,
-    "",
-    ...initial.map((item, index) => (
-      `const initial${index} = ${item.source};`
-    )),
-    "",
-    `const models = ${JSON.stringify(marker.models || {})};`,
-    "const specs = [",
-    ...initial.map((item, index) => [
-      "  {",
-      `    file: ${JSON.stringify(item.file)},`,
-      `    models: ${JSON.stringify(item.models)},`,
-      `    run: initial${index},`,
-      "  },",
-    ].join("\n")),
-    "];",
-    "const url = process.env.DATABASE_URL!;",
-    "const client = postgres({ contractJson, url });",
-    "try {",
-    "  const values = await readSeeds(specs, models);",
-    "  await applySeeds(client.orm.public, values.values, models);",
-    "  await resetSeedSequences(url, models);",
-    "} finally {",
-    "  await client.close();",
-    "}",
-    "",
-  ].join("\n");
-}
-
 async function writeDbFiles(pkg: LuonFile, root: string) {
-  const files = ["contract.json", "contract.d.ts", "source.js", "db.json"];
+  const files = ["contract.json", "source.js", "db.json"];
   for (const name of files) {
     const source = pkg.files.get(`database/${name}`);
     if (source) {
@@ -245,55 +148,113 @@ async function writeDbFiles(pkg: LuonFile, root: string) {
       );
     }
   }
-  const source = pkg.files.get("database/contract.ts");
-  if (!source) throw new Error("The .luon database contract is incomplete.");
-  const contract = (await source.text()).replace(
-    /^import \{ defineContract \} from [^;]+;/m,
-    `import { defineContract } from ${JSON.stringify(
-      import.meta.resolve("@prisma/orm-postgres/contract-builder"),
-    )};`,
-  );
-  await writeFile(join(root, "contract.ts"), contract);
-  await writeFile(join(root, "prisma.config.ts"), dbConfig());
 }
 
-async function startDatabase(pkg: LuonFile, root: string) {
+async function updateDatabase(root: string, url: string) {
+  const [{ defineConfig }, { createControlClient }] = await Promise.all([
+    import("@prisma/orm-postgres/config"),
+    import("@prisma/orm-toolchain/cli/control-api"),
+  ]);
+  const file = join(root, "contract.json");
+  const contract = await Bun.file(file).json();
+  const config = defineConfig({ contract: file, db: { connection: url } });
+  const migrations = join(root, "migrations");
+  await mkdir(migrations, { mode: 0o700, recursive: true });
+  const client = createControlClient({
+    adapter: config.adapter,
+    connection: url,
+    driver: config.driver,
+    extensions: config.extensions,
+    family: config.family,
+    target: config.target,
+  });
+  try {
+    const result = await client.dbUpdate({
+      acceptDataLoss: true,
+      contract,
+      migrationsDir: migrations,
+      mode: "apply",
+    });
+    if (!result.ok) {
+      throw new Error(
+        result.failure.summary || result.failure.why
+          || "The local database update failed.",
+      );
+    }
+  } finally {
+    await client.close();
+  }
+}
+
+async function seedDatabase(root: string, url: string, marker: DbMarker) {
+  const initial = (marker.initial || []).filter((item) => item.source);
+  if (!initial.length) return;
+  const postgres = (await import("@prisma/orm-postgres/runtime")).default;
+  const contractJson = await Bun.file(join(root, "contract.json")).json();
+  const specs = await Promise.all(initial.map(async (item) => {
+    const source = `export default ${item.source};`;
+    const module = await import(`data:text/javascript;base64,${Buffer.from(
+      source,
+    ).toString("base64")}`);
+    return { file: item.file, models: item.models, run: module.default };
+  }));
+  const models = marker.models || {};
+  const client = postgres({ contractJson, url });
+  try {
+    const values = await readSeeds(specs, models);
+    const orm = client.orm.public;
+    if (!orm) throw new Error("The local database namespace is missing.");
+    await applySeeds(orm, values.values, models);
+  } finally {
+    await client.close();
+  }
+  await resetSeedSequences(url, models);
+}
+
+export async function startDatabase(pkg: LuonFile, root: string) {
+  if (process.env.LUON_PLAYER_DB === "0") return;
   if (!pkg.manifest.database) return;
   const data = join(root, "data");
   const schema = join(data, "schema");
-  const name = `luon-${pkg.manifest.type}-${pkg.manifest.id.slice(
-    pkg.manifest.type.length + 1,
-  )}`;
-  await linkDatabase(name, join(data, "database"));
   await mkdir(schema, { mode: 0o700, recursive: true });
   await writeDbFiles(pkg, schema);
-  const { startPrismaDevServer } = await import("@prisma/dev");
-  const server = await startPrismaDevServer({
-    name,
-    persistenceMode: "stateful",
+  const [{ PGlite }, { PGLiteSocketServer }] = await Promise.all([
+    import("@electric-sql/pglite"),
+    import("@electric-sql/pglite-socket"),
+  ]);
+  const path = join(data, "database");
+  const pgData = process.env.LUON_PGLITE_DATA;
+  const pgInit = process.env.LUON_PGLITE_INIT;
+  const pgWasm = process.env.LUON_PGLITE_WASM;
+  const database = pgData && pgInit && pgWasm
+    ? await PGlite.create({
+      dataDir: path,
+      fsBundle: new Blob([await Bun.file(pgData).bytes()]),
+      initdbWasmModule: await WebAssembly.compile(
+        await Bun.file(pgInit).arrayBuffer(),
+      ),
+      pgliteWasmModule: await WebAssembly.compile(
+        await Bun.file(pgWasm).arrayBuffer(),
+      ),
+    })
+    : await PGlite.create(path);
+  const socket = new PGLiteSocketServer({
+    db: database,
+    host: "127.0.0.1",
+    port: 0,
   });
+  await socket.start();
   try {
-    const url = server.database.connectionString;
+    const port = socket.getServerConn().split(":").at(-1);
+    const url = `postgres://postgres@127.0.0.1:${port}/postgres?sslmode=disable`;
     const markerFile = join(data, "package.json");
     const marker = await Bun.file(markerFile).json().catch(() => undefined) as
       | { version?: string; seeded?: boolean }
       | undefined;
     if (marker?.version !== pkg.manifest.version) {
-      await run([
-        process.execPath,
-        "x",
-        "prisma@8.0.0-rc.12",
-        "db",
-        "update",
-        "--config",
-        join(schema, "prisma.config.ts"),
-        "--db",
-        url,
-        "--no-interactive",
-      ], schema, {
-        ...process.env,
-        DATABASE_URL: url,
-        PRISMA_SKILLS_CHECK: "0",
+      await updateDatabase(schema, url).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`The local database schema update failed: ${message}`);
       });
     }
     let seeded = marker?.seeded === true;
@@ -301,11 +262,9 @@ async function startDatabase(pkg: LuonFile, root: string) {
       const dbMarker = await Bun.file(join(schema, "db.json"))
         .json().catch(() => undefined) as DbMarker | undefined;
       if (dbMarker?.initial?.some((item) => item.source)) {
-        const initial = join(schema, "initial.ts");
-        await writeFile(initial, initialSource(schema, dbMarker));
-        await run([process.execPath, initial], schema, {
-          ...process.env,
-          DATABASE_URL: url,
+        await seedDatabase(schema, url, dbMarker).catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`The local database seed failed: ${message}`);
         });
       }
       seeded = true;
@@ -314,9 +273,16 @@ async function startDatabase(pkg: LuonFile, root: string) {
       seeded,
       version: pkg.manifest.version,
     }, null, 2)}\n`);
-    return { close: () => server.close(), url } satisfies LocalDb;
+    return {
+      async close() {
+        await socket.stop();
+        await database.close();
+      },
+      url,
+    } satisfies LocalDb;
   } catch (error) {
-    await server.close();
+    await socket.stop();
+    await database.close();
     throw error;
   }
 }
@@ -329,25 +295,45 @@ function workerEnv(worker: LocalWorker) {
   };
 }
 
-async function fullstackServer(
+export async function fullstackServer(
   pkg: LuonFile,
   files: Map<string, Blob>,
   root: string,
   port: number,
   databaseUrl?: string,
 ) {
-  const worker = await startWorker({
-    cache: "local",
-    cachePath: join(root, "cache", "cache"),
-    contract: pkg.manifest.database
-      ? join(root, "data", "schema", "contract.json")
-      : undefined,
-    databaseUrl,
-    id: pkg.manifest.id,
-    pglite: join(root, "cache", "pglite"),
-    root,
-    timezone: process.env.TZ || "UTC",
-  });
+  const source = pkg.files.get("runtime/server.js");
+  if (!source) throw new Error("The .luon server entry is missing.");
+  const cached = cachedProgram(pkg);
+  const program = cached || await mkdtemp(join(root, "cache", "program-"));
+  let worker: LocalWorker | undefined;
+  try {
+    if (!cached) {
+      await Bun.write(join(program, "server.js"), source);
+      for (const [name, file] of pkg.files) {
+        if (!name.startsWith("site/")) continue;
+        const target = join(program, name.slice("site/".length));
+        await mkdir(dirname(target), { mode: 0o700, recursive: true });
+        await Bun.write(target, file);
+      }
+    }
+    worker = await startWorker({
+      cache: "local",
+      cachePath: join(root, "cache", "cache"),
+      contract: pkg.manifest.database
+        ? join(root, "data", "schema", "contract.json")
+        : undefined,
+      databaseUrl,
+      id: pkg.manifest.id,
+      pglite: join(root, "cache", "pglite"),
+      root,
+      timezone: process.env.TZ || "UTC",
+    });
+  } catch (error) {
+    await worker?.close();
+    if (!cached) await rm(program, { force: true, recursive: true });
+    throw error;
+  }
   Object.assign(process.env, {
     ...workerEnv(worker),
     DATABASE_URL: databaseUrl || "",
@@ -364,13 +350,11 @@ async function fullstackServer(
     __luonPackageReady?: (server: LocalServer) => void;
   };
   global.__luonPackageReady = accept;
-  const source = pkg.files.get("runtime/server.js");
-  if (!source) throw new Error("The .luon server entry is missing.");
-  const url = `data:text/javascript;base64,${Buffer.from(
-    await source.arrayBuffer(),
-  ).toString("base64")}`;
+  const url = pathToFileURL(join(program, "server.js")).href;
+  const cwd = process.cwd();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    process.chdir(program);
     const loading = import(url);
     const server = await Promise.race([
       ready,
@@ -383,11 +367,13 @@ async function fullstackServer(
       }),
     ]);
     await worker.bind(process.pid);
-    return { server, worker };
+    return { program: cached ? undefined : program, server, worker };
   } catch (error) {
     await worker.close();
+    if (!cached) await rm(program, { force: true, recursive: true });
     throw error;
   } finally {
+    process.chdir(cwd);
     clearTimeout(timer);
     delete global.__luonPackageReady;
   }
@@ -414,25 +400,39 @@ function waitSignal() {
   });
 }
 
-async function packageIcons(pkg: LuonFile, root: string, page: URL) {
+export async function packageIcons(pkg: LuonFile, root: string, page: URL) {
+  const fixed = process.env.LUON_STANDALONE_ICON;
   const source = pkg.files.get("site/favicon.svg");
-  if (!source) return {};
+  if (!source) return { icon: fixed };
   const assets = join(root, "assets");
   const svg = join(assets, "favicon.svg");
   await mkdir(assets, { mode: 0o700, recursive: true });
   await writeFile(svg, new Uint8Array(await source.arrayBuffer()));
   const win = pkg.manifest.app?.window || {};
+  let iconFiles: Record<string, unknown> = {};
+  try {
+    iconFiles = JSON.parse(
+      process.env.LUON_STANDALONE_ICONS || "{}",
+    ) as Record<string, unknown>;
+  } catch {}
+  const embedded = (value: unknown): IconSource | undefined => {
+    if (typeof value !== "string") return;
+    const path = iconFiles[value];
+    return typeof path === "string"
+      ? { kind: "lucide", value: path }
+      : undefined;
+  };
   const statusSource = win.systemIcon
-    ? await iconSource(win.systemIcon, page, {})
+    ? embedded(win.systemIcon) || await iconSource(win.systemIcon, page, {})
     : undefined;
   const statusIcon = statusSource
     ? await systemIcon(statusSource, assets)
     : svg;
   const iconRows = await Promise.all(
     Object.entries(pkg.manifest.app?.icons || {}).map(async ([name, spec]) => {
-      const source = await iconSource(spec, page, {});
+      const source = embedded(spec) || await iconSource(spec, page, {});
       const [icon, system] = await Promise.all([
-        dockIcon(source, pkg.manifest.favicon?.style || {}, assets)
+        fixed || dockIcon(source, pkg.manifest.favicon?.style || {}, assets)
           .then((value) => buildIcon(value, process.platform, assets)),
         systemIcon(source, assets),
       ]);
@@ -440,7 +440,7 @@ async function packageIcons(pkg: LuonFile, root: string, page: URL) {
     }),
   );
   return {
-    icon: await buildIcon(svg, process.platform, assets),
+    icon: fixed || await buildIcon(svg, process.platform, assets),
     icons: Object.fromEntries(iconRows),
     statusIcon,
   };
@@ -451,15 +451,16 @@ async function openWindow(
   root: string,
   url: string,
   update?: CliUpdate,
+  relaunch?: string[],
 ) {
   const page = new URL(url);
   const icons = await packageIcons(pkg, root, page);
-  const child = await openView(viewOptions({
+  const child = await openView({ ...viewOptions({
     id: pkg.manifest.id,
     title: pkg.manifest.title,
     url,
     window: pkg.manifest.app?.window || {},
-  }, page, icons.icon, icons.statusIcon, icons.icons));
+  }, page, icons.icon, icons.statusIcon, icons.icons), relaunch });
   console.log(`Luon WebView: running · PID ${child.pid}`);
   void warnCliVersion(update);
   const code = await child.exited;
@@ -477,18 +478,20 @@ export async function runLuonFile(args: Args) {
     throw new Error(`The .luon file was not found: ${path}`);
   }
   const title = basename(path, extname(path)) || "Luon package";
-  const bytes = await Bun.file(path).bytes();
+  const bytes = await Bun.file(path).slice(0, 256).bytes();
   const pkg = isPasswordLuon(bytes)
     ? await askPassword(title, (password) => (
-      readLuon(bytes, password).catch(() => undefined)
+      readLuon(Bun.file(path), password).catch(() => undefined)
     ), { pin: isPinLuon(bytes) })
-    : await readLuon(bytes).catch(async () => {
+    : await cachedLuon(Bun.file(path)).catch(async () => {
       await showInvalidPackage(title);
       return undefined;
     });
   if (!pkg) return;
-  const update = await cliUpdate();
-  if (!await requireCliVersion(pkg.manifest.title, update)) return;
+  const standalone = process.env.LUON_STANDALONE === "1";
+  const update = standalone ? undefined : await cliUpdate();
+  if (!standalone
+    && !await requireCliVersion(pkg.manifest.title, update)) return;
   if (pkg.manifest.data === "server" && args.view === "headless") {
     throw new Error(
       "A server-backed .luon package must open in WebView or a browser.",
@@ -506,6 +509,10 @@ export async function runLuonFile(args: Args) {
   await Promise.all(["assets", "cache", "data", "files"].map((name) => (
     mkdir(join(root, name), { mode: 0o700, recursive: true })
   )));
+  const relaunch = process.platform === "darwin" && !standalone
+    && args.view === "webview"
+    ? cliCommand(["file", await keepPackage(path, root), "--webview"])
+    : undefined;
   if (pkg.manifest.data === "server") {
     const url = pkg.manifest.url!;
     console.log(`Luon package: ${pkg.manifest.title} · ${url}`);
@@ -514,7 +521,7 @@ export async function runLuonFile(args: Args) {
       await warnCliVersion(update);
       return;
     }
-    await openWindow(pkg, root, url, update);
+    await openWindow(pkg, root, url, update, relaunch);
     return;
   }
   const files = siteFiles(pkg);
@@ -522,6 +529,7 @@ export async function runLuonFile(args: Args) {
   const db = await startDatabase(pkg, root);
   let server: LocalServer | undefined;
   let worker: LocalWorker | undefined;
+  let program: string | undefined;
   try {
     if (pkg.manifest.mode === "static") {
       server = staticServer(files, port);
@@ -535,6 +543,7 @@ export async function runLuonFile(args: Args) {
       );
       server = value.server;
       worker = value.worker;
+      program = value.program;
     }
     if (!server?.port) throw new Error("The .luon server port is unavailable.");
     const url = `http://localhost:${server.port}`;
@@ -546,12 +555,13 @@ export async function runLuonFile(args: Args) {
     } else if (args.view === "headless") {
       await waitSignal();
     } else {
-      await openWindow(pkg, root, url, update);
+      await openWindow(pkg, root, url, update, relaunch);
     }
   } finally {
     await Promise.resolve(server?.stop(true)).catch(() => undefined);
     await worker?.close();
     await db?.close();
+    if (program) await rm(program, { force: true, recursive: true });
     delete (globalThis as Record<symbol, unknown>)[packageFiles];
   }
 }

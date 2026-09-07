@@ -75,29 +75,57 @@ function same(left: Versions, right: Versions) {
     && left.worker === right.worker;
 }
 
-async function metadata() {
-  const read = async (value: string) => {
-    const response = await fetch(
-      `${registry}/${encodeURIComponent(value)}`,
-      { signal: AbortSignal.timeout(10_000) },
+async function readMeta(value: string) {
+  const response = await fetch(
+    `${registry}/${encodeURIComponent(value)}`,
+    { signal: AbortSignal.timeout(10_000) },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Could not check ${value} version. (${response.status})`,
     );
-    if (!response.ok) {
-      throw new Error(
-        `Could not check ${value} version. (${response.status})`,
-      );
-    }
-    return await response.json() as PackageMeta;
-  };
+  }
+  return await response.json() as PackageMeta;
+}
+
+async function metadata() {
   const [agent, cli, runtime, worker] = await Promise.all([
-    read("@luon/agent"),
-    read(name),
-    read("@luon/runtime"),
-    read("@luon/worker"),
+    readMeta("@luon/agent"),
+    readMeta(name),
+    readMeta("@luon/runtime"),
+    readMeta("@luon/worker"),
   ]);
   return { agent, cli, runtime, worker };
 }
 
-async function install() {
+export function webviewName(platform: string, arch: string) {
+  const os = { darwin: "macos", win32: "windows", linux: "linux" }[
+    platform as "darwin" | "win32" | "linux"
+  ];
+  if (!os || !["x64", "arm64"].includes(arch)
+    || (os === "macos" && arch !== "arm64")) return "";
+  return `@luon/webview-${os}-${arch === "x64" ? "amd64" : arch}`;
+}
+
+export async function installTargets(
+  target: Versions,
+  read = readMeta,
+  platform: string = process.platform,
+  arch: string = process.arch,
+) {
+  const packages: Record<string, string> = Object.fromEntries(
+    Object.entries(target).map(([id, version]) => [`@luon/${id}`, version]),
+  );
+  const native = webviewName(platform, arch);
+  const names = ["@luon/webview", ...(native ? [native] : [])];
+  await Promise.all(names.map(async (id) => {
+    packages[id] = latest(await read(id), id);
+  }));
+  return packages;
+}
+
+async function install(target: Versions) {
+  const packages = await installTargets(target);
   const child = Bun.spawn([
     process.execPath,
     "add",
@@ -105,7 +133,7 @@ async function install() {
     "--force",
     "--registry",
     registry,
-    `${name}@latest`,
+    ...Object.entries(packages).map(([id, version]) => `${id}@${version}`),
   ], {
     stderr: "pipe",
     stdin: "ignore",
@@ -120,12 +148,29 @@ async function install() {
     const detail = stderr.trim() || stdout.trim();
     throw new Error(detail.split("\n").at(-1) || "The Luon CLI update failed.");
   }
+  const wrapper = Bun.resolveSync("@luon/webview", import.meta.dir);
+  for (const [id, expected] of Object.entries(packages)) {
+    if (!id.startsWith("@luon/webview")) continue;
+    const entry = id === "@luon/webview"
+      ? wrapper : Bun.resolveSync(id, dirname(wrapper));
+    const file = resolve(dirname(entry), "../package.json");
+    const { version } = await Bun.file(file).json();
+    if (version !== expected) {
+      throw new Error(`${id}@${version} installed; expected ${expected}.`);
+    }
+  }
+  console.log(Object.entries(packages)
+    .filter(([id]) => id.startsWith("@luon/webview"))
+    .map(([id, version]) => `${id}@${version}`).join(" · "));
+}
+
+function globalBin() {
+  const command = process.platform === "win32" ? "luon.exe" : "luon";
+  return resolve(dirname(process.execPath), command);
 }
 
 async function installed() {
-  const command = process.platform === "win32" ? "luon.exe" : "luon";
-  const bin = resolve(dirname(process.execPath), command);
-  const child = Bun.spawn([bin, "version", "--json"], {
+  const child = Bun.spawn([globalBin(), "version", "--json"], {
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -153,7 +198,8 @@ export async function updateCli(
     return;
   }
   console.log("Installing the latest Luon package set…");
-  await (deps.install || install)();
+  if (deps.install) await deps.install();
+  else await install(target);
   const next = await (deps.installed || installed)();
   if (!same(next, target)) {
     throw new Error(

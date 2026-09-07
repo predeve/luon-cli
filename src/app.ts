@@ -11,21 +11,32 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  controlView,
   openView,
   type ViewOptions,
 } from "@luon/webview";
 
 import type { Args } from "./args.ts";
-import { readAccount } from "./account.ts";
+import { login, readAccount } from "./account.ts";
+import { cliCommand } from "./relaunch.ts";
+import { showNotice } from "./notice.ts";
 import { iconSvg, type IconSource } from "@luon/runtime/favicon";
-import { buildIcon } from "./icon.ts";
 import {
   cliUpdate,
   requireCliVersion,
-  requireServer,
+  serverState,
   showServerIssue,
   warnCliVersion,
 } from "./launch-check.ts";
+
+async function buildIcon(
+  source: string | undefined,
+  platform = process.platform,
+  root?: string,
+) {
+  const icon = await import("./icon.ts");
+  return icon.buildIcon(source, platform, root);
+}
 
 export type SiteManifest = {
   icons?: Record<string, string>;
@@ -39,7 +50,7 @@ export type SiteManifest = {
 
 export function validSiteId(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  return /^(?:web|app|bot)-[a-z0-9-]{1,64}$/.test(value);
+  return /^(?:web|app)-[a-z0-9-]{1,64}$/.test(value);
 }
 
 function validTemplateId(value: unknown): value is string {
@@ -56,7 +67,6 @@ function defaultIcon(id: string) {
   if (id.startsWith("app-") || id.startsWith("tmp-")) {
     return "lucide:app-window";
   }
-  if (id.startsWith("bot-")) return "lucide:bot";
   return "lucide:globe-2";
 }
 
@@ -66,7 +76,7 @@ export function sendSiteAuth(
 ) {
   return Boolean(account && (
     account.url === url.origin
-    || /^(?:web|app|bot|tmp)\.luon\.dev$/.test(url.hostname)
+    || /^(?:web|app|tmp)\.luon\.dev$/.test(url.hostname)
   ));
 }
 
@@ -103,17 +113,21 @@ export function launchUrl(value: string) {
   }
   if (url.hostname === "app" && url.pathname === "/check") {
     const callback = url.searchParams.get("callback");
+    const target = url.searchParams.get("launch") || undefined;
     if (!callback) throw new Error("Luon CLI check callback is missing.");
-    return { callback, kind: "check" } as const;
+    if (target && launchUrl(target).kind !== "open") {
+      throw new Error("Luon CLI check launch target is invalid.");
+    }
+    return { callback, kind: "check", target } as const;
   }
   if (url.username || url.password || url.search || url.hash) {
     throw new Error("Luon App launch URL is invalid.");
   }
-  const short = /^(web|app|bot)\.(luon\.dev|localhost)$/
+  const short = /^(web|app)\.(luon\.dev|localhost)$/
     .exec(url.hostname);
   const template = /^tmp\.(luon\.dev|localhost)$/
     .exec(url.hostname);
-  const direct = /^((web|app|bot)-([a-z0-9-]{1,64}))\.(luon\.dev|localhost)$/
+  const direct = /^((web|app)-([a-z0-9-]{1,64}))\.(luon\.dev|localhost)$/
     .exec(url.hostname);
   const path = /^\/([a-z0-9-]{1,64})\/?$/.exec(url.pathname);
   if (template && path) {
@@ -373,6 +387,7 @@ export function viewOptions(
     minHeight: number(win.minHeight),
     minWidth: number(win.minWidth),
     mode: choice(win.mode, ["both", "dock", "system"]),
+    native: bool(win.native),
     remember: choice(win.remember, ["all", "none", "position", "size"]),
     rememberId: manifest.id,
     resizable: bool(win.resizable),
@@ -391,9 +406,13 @@ export function viewOptions(
   };
 }
 
-export async function openApp(value: string) {
+export async function openApp(value: string): Promise<void> {
   const launch = launchUrl(value);
-  if (launch.kind === "check") return confirmCheck(launch.callback);
+  if (launch.kind === "check") {
+    await confirmCheck(launch.callback);
+    return launch.target ? openApp(launch.target) : undefined;
+  }
+  const updateTask = cliUpdate();
   const target = await manifestUrl(launch.manifest);
   const template = target.url.hostname.startsWith("tmp.");
   const headers: Record<string, string> = {};
@@ -410,6 +429,26 @@ export async function openApp(value: string) {
     if (template) throw error;
     await showServerIssue("Luon App", "unavailable");
     return;
+  }
+  if (response.status === 401 || response.status === 403) {
+    try {
+      const account = await login();
+      if (!sendSiteAuth(account, target.url)) {
+        throw new Error("The connected account does not match this Core.");
+      }
+      response = await fetch(target.url, {
+        headers: { authorization: `Bearer ${account.token}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (error) {
+      await showNotice({
+        message: error instanceof Error ? error.message
+          : "Luon CLI login could not be completed.",
+        title: "Sign in required",
+        tone: "warning",
+      });
+      return;
+    }
   }
   if (!response.ok) {
     if (!template && response.status === 404) {
@@ -444,10 +483,15 @@ export async function openApp(value: string) {
       && local(page.hostname)))) {
     throw new Error("Luon App Site URL is not secure.");
   }
-  const update = await cliUpdate();
+  const stateTask = body.source === "site"
+    ? serverState(page.toString())
+    : Promise.resolve("ready" as const);
+  const [update, state] = await Promise.all([updateTask, stateTask]);
   if (!await requireCliVersion(manifest.title, update)) return;
-  if (body.source === "site"
-    && !await requireServer(manifest.title, page.toString())) return;
+  if (state !== "ready") {
+    await showServerIssue(manifest.title, state);
+    return;
+  }
   const options = viewOptions(manifest, page, undefined, undefined);
   const assetHeaders: Record<string, string> = {};
   const assets = join(homedir(), ".luon", "apps", manifest.id, "assets");
@@ -482,8 +526,19 @@ export async function openApp(value: string) {
   );
   const icons = Object.fromEntries(iconRows);
   const child = await openView(
-    viewOptions(manifest, page, icon, statusIcon, icons),
+    { ...viewOptions(manifest, page, icon, statusIcon, icons),
+      relaunch: process.platform === "darwin"
+        ? cliCommand(["app", "open", value]) : undefined },
   );
+  if (process.platform === "darwin") {
+    void Bun.sleep(300).then(() => {
+      try {
+        controlView(child.pid, "show");
+      } catch {
+        // The user may close a short-lived App before focus is reapplied.
+      }
+    });
+  }
   console.log(`Luon App: running · PID ${child.pid}`);
   void warnCliVersion(update);
   const error = child.stderr

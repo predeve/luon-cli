@@ -15,10 +15,9 @@ afterEach(() => {
 });
 
 describe("CLI App launcher", () => {
-  test("accepts WEB, APP and BOT Site identities", () => {
+  test("accepts WEB and APP Site identities", () => {
     expect(validSiteId("web-b572bf27da39")).toBeTrue();
     expect(validSiteId("app-d6eafa1eb253")).toBeTrue();
-    expect(validSiteId("bot-d6eafa1eb253")).toBeTrue();
     expect(validSiteId("tmp-03c1da262b80")).toBeFalse();
   });
 
@@ -29,8 +28,6 @@ describe("CLI App launcher", () => {
     expect(sendSiteAuth(account, new URL("https://core.example.com/manifest")))
       .toBeTrue();
     expect(sendSiteAuth(account, new URL("https://web.luon.dev/manifest")))
-      .toBeTrue();
-    expect(sendSiteAuth(account, new URL("https://bot.luon.dev/manifest")))
       .toBeTrue();
     expect(sendSiteAuth(account, new URL(
       "https://tmp.luon.dev/03c1da262b80/manifest",
@@ -53,11 +50,6 @@ describe("CLI App launcher", () => {
       .toEqual({ kind: "open", manifest });
     expect(launchUrl("luon://app-b08cce6cb5ed.luon.dev"))
       .toEqual({ kind: "open", manifest });
-    expect(launchUrl("luon://bot-b08cce6cb5ed.luon.dev"))
-      .toEqual({
-        kind: "open",
-        manifest: "https://bot.luon.dev/b08cce6cb5ed/manifest",
-      });
     expect(launchUrl("luon://app.localhost:6010/b08cce6cb5ed"))
       .toEqual({
         kind: "open",
@@ -99,6 +91,19 @@ describe("CLI App launcher", () => {
     url.searchParams.set("callback", callback);
     await openApp(url.toString());
     expect(confirmed).toBeTrue();
+  });
+
+  test("carries one trusted App launch with the installation check", () => {
+    const callback = `https://www.luon.dev/api/cli/check/${"a".repeat(43)}`;
+    const target = "luon://app-b08cce6cb5ed.luon.dev";
+    const url = new URL("luon://app/check");
+    url.searchParams.set("callback", callback);
+    url.searchParams.set("launch", target);
+    expect(launchUrl(url.toString())).toEqual({
+      callback,
+      kind: "check",
+      target,
+    });
   });
 
   test("rejects an untrusted installation callback", async () => {

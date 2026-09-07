@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  installTargets,
   parseVersions,
   targetVersions,
   updateCli,
+  webviewName,
 } from "../src/update.ts";
 
 const current = {
@@ -38,6 +40,28 @@ const meta = {
 };
 
 describe("CLI update", () => {
+  test("refreshes the native package even when CLI versions match", async () => {
+    const packages = await installTargets(target, async (id) => {
+      const version = id === "@luon/webview" ? "0.3.17" : "0.3.14";
+      return {
+        "dist-tags": { latest: version },
+        versions: { [version]: {} },
+      };
+    }, "win32", "x64");
+    expect(packages["@luon/cli"]).toBe(target.cli);
+    expect(packages["@luon/webview"]).toBe("0.3.17");
+    expect(packages["@luon/webview-windows-amd64"]).toBe("0.3.14");
+    expect(Object.keys(packages)).toHaveLength(6);
+    expect(webviewName("darwin", "arm64"))
+      .toBe("@luon/webview-macos-arm64");
+    expect(webviewName("linux", "arm64"))
+      .toBe("@luon/webview-linux-arm64");
+    expect(webviewName("darwin", "x64")).toBe("");
+    await expect(installTargets(target, async () => ({
+      "dist-tags": { latest: "0.3.14" }, versions: {},
+    }))).rejects.toThrow("Could not determine");
+  });
+
   test("reads each latest Luon package version", () => {
     expect(targetVersions(meta)).toEqual(target);
     expect(parseVersions(

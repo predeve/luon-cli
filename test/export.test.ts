@@ -18,7 +18,7 @@ afterEach(async () => {
   )));
 });
 
-test("exports a paid remote Site with its build filename", async () => {
+test("exports a remote Site with its build filename", async () => {
   const root = await mkdtemp(resolve(tmpdir(), "luon-cli-export-"));
   roots.push(root);
   let request: Request | undefined;
@@ -44,13 +44,13 @@ test("exports a paid remote Site with its build filename", async () => {
   expect(await Bun.file(path).text()).toBe("portable");
 });
 
-test("requires login and forwards paid-plan errors", async () => {
+test("requires login and forwards export errors", async () => {
   await expect(exportSite("app-product", { account: null }))
     .rejects.toThrow("luon login");
   await expect(exportSite("app-product", {
     account,
     send: async () => Response.json({
-      message: "A paid Lite or Pro plan is required to export .luon files.",
+      message: "The Site could not be exported.",
     }, { status: 403 }),
-  })).rejects.toThrow("paid Lite or Pro plan");
+  })).rejects.toThrow("could not be exported");
 });

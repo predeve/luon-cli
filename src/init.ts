@@ -188,7 +188,6 @@ export async function initProject(input: string, yes = false) {
       name,
       private: true,
       type: "module",
-      favicon: { autoGenerate: false },
       dependencies: {
         "@luon/rule": "latest",
         "@luon/runtime": "latest",
@@ -205,6 +204,9 @@ export async function initProject(input: string, yes = false) {
         prisma: "8.0.0-rc.12",
         typescript: "latest",
       },
+    }, null, 2)}\n`),
+    Bun.write(join(root, "app.config.json"), `${JSON.stringify({
+      icons: { autoGenerate: false },
     }, null, 2)}\n`),
     Bun.write(join(root, "tsconfig.json"), `${JSON.stringify({
       compilerOptions: {

@@ -25,7 +25,14 @@ export type ServiceAction =
   | "status"
   | "stop";
 
-export type AppAction = "check" | "install" | "open";
+export type AppAction = "build" | "check" | "install" | "open";
+
+export type AppTarget =
+  | "linux-arm64"
+  | "linux-x64"
+  | "macos-arm64"
+  | "windows-arm64"
+  | "windows-x64";
 
 export type Args = {
   command: Command;
@@ -36,9 +43,12 @@ export type Args = {
   detail?: boolean;
   json?: boolean;
   open: boolean;
+  output?: string;
+  preference?: "optimize" | "compatible";
   port?: number;
   root: string;
   site?: string;
+  target?: AppTarget;
   topic?: Command;
   view?: "browser" | "headless" | "webview";
   yes: boolean;
@@ -73,6 +83,14 @@ const actions = new Set<ServiceAction>([
   "stop",
 ]);
 
+const appTargets = new Set<AppTarget>([
+  "linux-arm64",
+  "linux-x64",
+  "macos-arm64",
+  "windows-arm64",
+  "windows-x64",
+]);
+
 function parseService(command: "agent", values: string[]): Args {
   if (values.includes("--help")) return {
     command: "help",
@@ -97,6 +115,46 @@ function parseApp(values: string[]): Args {
     yes: false,
   };
   const action = (values.shift() || "install") as AppAction;
+  if (action === "build") {
+    const root = values.shift() || "";
+    let output: string | undefined;
+    let target: AppTarget | undefined;
+    let preference: "optimize" | "compatible" = "optimize";
+    let hasPreference = false;
+    while (values.length) {
+      const option = values.shift();
+      const value = values.shift();
+      if (option === "--out" && output === undefined && value) {
+        output = value;
+      } else if (option === "--target" && target === undefined
+        && value && appTargets.has(value as AppTarget)) {
+        target = value as AppTarget;
+      } else if (option === "--preference" && !hasPreference
+        && (value === "optimize" || value === "compatible")) {
+        preference = value;
+        hasPreference = true;
+      } else {
+        throw new Error(
+          "Use luon app build <package.luon> [--out path] [--target platform].",
+        );
+      }
+    }
+    if (!root.toLowerCase().endsWith(".luon")) {
+      throw new Error(
+        "Use luon app build <package.luon> [--out path] [--target platform].",
+      );
+    }
+    return {
+      appAction: action,
+      command: "app",
+      open: false,
+      output,
+      preference,
+      root,
+      target,
+      yes: false,
+    };
+  }
   if (["check", "install"].includes(action) && !values.length) {
     return { appAction: action, command: "app", open: false, root: ".", yes: false };
   }
@@ -190,7 +248,7 @@ function parseExport(values: string[]): Args {
     yes: false,
   };
   const site = values.shift() || "";
-  if (!/^(?:web|app|bot)-[a-z0-9-]{1,64}$/.test(site) || values.length) {
+  if (!/^(?:web|app)-[a-z0-9-]{1,64}$/.test(site) || values.length) {
     throw new Error("Use luon export <site-id>.");
   }
   return { command: "export", open: false, root: ".", site, yes: false };

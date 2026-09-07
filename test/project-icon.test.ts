@@ -18,10 +18,10 @@ describe("CLI project icon", () => {
     await Bun.write(join(app, ".config", "template.json"), JSON.stringify({
       category: "app",
     }));
-    await Bun.write(join(app, "package.json"), JSON.stringify({
-      favicon: {
+    await Bun.write(join(app, "app.config.json"), JSON.stringify({
+      icons: {
         autoGenerate: true,
-        source: "lucide:message-circle",
+        favicon: "lucide:message-circle",
         style: {
           from: "#db739d",
           to: "#454267",
@@ -45,10 +45,10 @@ describe("CLI project icon", () => {
     expect(await prepareIcon(app)).toBe(file);
     expect((await stat(file!)).mtimeMs).toBe(modified);
 
-    await Bun.write(join(app, "package.json"), JSON.stringify({
-      favicon: {
+    await Bun.write(join(app, "app.config.json"), JSON.stringify({
+      icons: {
         autoGenerate: true,
-        source: "lucide:message-circle",
+        favicon: "lucide:message-circle",
         style: {
           from: "#111111",
           to: "#222222",
@@ -65,7 +65,7 @@ describe("CLI project icon", () => {
     await Bun.write(join(app, ".config", "site.json"), JSON.stringify({
       type: "app",
     }));
-    await Bun.write(join(app, "package.json"), "{}\n");
+    await Bun.write(join(app, "app.config.json"), "{}\n");
     const file = await prepareIcon(app);
     expect(await Bun.file(file!).text()).toContain("data-luon-site-icon");
   });
@@ -76,10 +76,10 @@ describe("CLI project icon", () => {
     await Bun.write(join(app, ".config", "site.json"), JSON.stringify({
       type: "app",
     }));
-    await Bun.write(join(app, "package.json"), JSON.stringify({
-      favicon: {
+    await Bun.write(join(app, "app.config.json"), JSON.stringify({
+      icons: {
         autoGenerate: false,
-        source: "lucide:message-circle",
+        favicon: "lucide:message-circle",
       },
     }));
     const file = join(app, "public", "favicon.svg");
@@ -91,7 +91,7 @@ describe("CLI project icon", () => {
     await rm(file);
     expect(await prepareIcon(app)).toBeUndefined();
     await expect(prepareIcon(app, { required: true }))
-      .rejects.toThrow("favicon.autoGenerate is false");
+      .rejects.toThrow("icons.autoGenerate is false");
   });
 
   test("writes the configured icon for a Web Site", async () => {
@@ -100,10 +100,10 @@ describe("CLI project icon", () => {
     await Bun.write(join(web, ".config", "site.json"), JSON.stringify({
       type: "web",
     }));
-    await Bun.write(join(web, "package.json"), JSON.stringify({
-      favicon: {
+    await Bun.write(join(web, "app.config.json"), JSON.stringify({
+      icons: {
         autoGenerate: true,
-        source: "lucide:globe",
+        favicon: "lucide:globe",
       },
     }));
     const file = await prepareIcon(web);
@@ -112,30 +112,42 @@ describe("CLI project icon", () => {
   });
 
   test("embeds an image source in the generated favicon", async () => {
-    const bot = join(root, "bot");
-    await mkdir(join(bot, ".config"), { recursive: true });
-    await mkdir(join(bot, "public"), { recursive: true });
-    await Bun.write(join(bot, ".config", "site.json"), JSON.stringify({
-      type: "bot",
+    const image = join(root, "image");
+    await mkdir(join(image, ".config"), { recursive: true });
+    await mkdir(join(image, "public"), { recursive: true });
+    await Bun.write(join(image, ".config", "site.json"), JSON.stringify({
+      type: "web",
     }));
-    await Bun.write(join(bot, "public", "logo.svg"), "<svg></svg>");
-    await Bun.write(join(bot, "package.json"), JSON.stringify({
-      favicon: {
+    await Bun.write(join(image, "public", "logo.svg"), "<svg></svg>");
+    await Bun.write(join(image, "app.config.json"), JSON.stringify({
+      icons: {
         autoGenerate: true,
-        source: "image:public/logo.svg",
+        favicon: "image:public/logo.svg",
       },
     }));
-    const file = await prepareIcon(bot);
+    const file = await prepareIcon(image);
     expect(await Bun.file(file!).text()).toContain("data:image/svg+xml;base64,");
 
-    await Bun.write(join(bot, "package.json"), JSON.stringify({
-      favicon: {
+    await Bun.write(join(image, "app.config.json"), JSON.stringify({
+      icons: {
         autoGenerate: true,
-        source: "emoji:🤖",
+        favicon: "emoji:🤖",
       },
     }));
-    await expect(prepareIcon(bot)).rejects.toThrow(
+    await expect(prepareIcon(image)).rejects.toThrow(
       "Favicon source must use lucide: or image:.",
+    );
+  });
+
+  test("rejects invalid App configuration", async () => {
+    const app = join(root, "invalid");
+    await mkdir(join(app, ".config"), { recursive: true });
+    await Bun.write(join(app, ".config", "site.json"), JSON.stringify({
+      type: "app",
+    }));
+    await Bun.write(join(app, "app.config.json"), "[]\n");
+    await expect(prepareIcon(app)).rejects.toThrow(
+      "app.config.json must contain a JSON object",
     );
   });
 });

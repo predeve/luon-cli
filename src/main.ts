@@ -2,7 +2,10 @@ import { parseArgs, type Command } from "./args.ts";
 
 const help: Record<Command, string> = {
   agent: "luon agent [install|start|stop|restart|status|open]",
-  app: "luon app [check|install]",
+  app: "luon app build <package.luon> [--out path] [--target platform]\n"
+    + "  [--preference optimize|compatible] (default: optimize)\n"
+    + "Targets: macos-arm64, windows-x64, windows-arm64, linux-x64, "
+    + "linux-arm64\nluon app [check|install]",
   build: "luon build [path]",
   dev: "luon dev [path] [--port number] [--open]",
   export: "luon export <site-id>",
@@ -34,7 +37,7 @@ function show(topic?: Command) {
     "  luon prepare [path]   Generate Runtime and auto-import files",
     "  luon dev [path]       Run the development server",
     "  luon build [path]     Build for production",
-    "  luon export <site-id> Export a paid account Site as .luon",
+    "  luon export <site-id> Export an owned server Site as .luon",
     "  luon start [path]     Run the production build",
     "  luon stop [path]      Stop an Agent-managed Site",
     "  luon status [path]    Show a managed Site",
@@ -42,6 +45,7 @@ function show(topic?: Command) {
     "  luon agent [action]   Control local Sites and dashboard",
     "  luon app install      Install the local App launcher",
     "  luon app check        Verify the native WebView package",
+    "  luon app build <file> Build a native desktop app",
     "  luon product.luon     Run a portable Luon package",
     "  luon update           Update CLI, Agent, Runtime, and Worker",
     "  luon version          Print the CLI version",
@@ -70,6 +74,10 @@ export async function main(raw: string[]) {
     return initProject(args.root, args.yes);
   }
   if (args.command === "app") {
+    if (args.appAction === "build") {
+      const { buildStandalone } = await import("./standalone.ts");
+      return buildStandalone(args);
+    }
     const { runApp } = await import("./app.ts");
     return runApp(args);
   }

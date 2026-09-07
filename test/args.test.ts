@@ -43,6 +43,21 @@ describe("CLI arguments", () => {
       .toMatchObject({ appAction: "install", command: "app" });
     expect(parseArgs(["app", "check"]))
       .toMatchObject({ appAction: "check", command: "app" });
+    expect(parseArgs(["app", "build", "product.luon"]))
+      .toMatchObject({ appAction: "build", root: "product.luon" });
+    expect(parseArgs([
+      "app",
+      "build",
+      "product.luon",
+      "--out",
+      "Product",
+      "--target",
+      "windows-x64",
+    ])).toMatchObject({
+      appAction: "build",
+      output: "Product",
+      target: "windows-x64",
+    });
     expect(parseArgs(["app", "open", "luon://app.luon.dev/b08cce6cb5ed"]))
       .toMatchObject({ appAction: "open", command: "app" });
     expect(parseArgs(["stop", "site"]))
@@ -81,6 +96,17 @@ describe("CLI arguments", () => {
       .toThrow("Unknown action");
     expect(() => parseArgs(["app", "launch"]))
       .toThrow("Unknown action");
+    expect(() => parseArgs(["app", "build", "product.zip"]))
+      .toThrow("luon app build");
+    expect(() => parseArgs(["app", "build", "product.luon", "--force"]))
+      .toThrow("luon app build");
+    expect(() => parseArgs([
+      "app",
+      "build",
+      "product.luon",
+      "--target",
+      "windows-32",
+    ])).toThrow("luon app build");
     expect(() => parseArgs(["login", "site"]))
       .toThrow("does not accept arguments");
     expect(() => parseArgs(["version", "site"]))

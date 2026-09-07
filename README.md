@@ -29,7 +29,7 @@ irm https://pkg.luon.dev/install.ps1 | iex
 
 The Linux installer prepares dependencies automatically on compatible
 apt-based systems. Other glibc distributions need curl, unzip, GTK3 and
-WebKitGTK 4.1 installed manually. Alpine/musl requires a source build.
+WebKitGTK 4.1 installed manually. Alpine/musl is not supported.
 
 ## Who it is for
 
@@ -65,18 +65,14 @@ CLI installs WebView and its matching native package so agent install can open t
 
 app install registers the local luon:// launcher so Core can open
 `luon://tmp.luon.dev/{id}` in WebView with the App Template's original window
-settings. Without a confirmed launcher, Core uses the browser Preview.
+settings. Without it, Core uses browser Preview.
 
-### Portable `.luon` files
+### Portable Luon files
 
-An active Lite or Pro account can export any owned WEB, APP, or BOT from My
-Sites or with `luon export <site-id>`. Core builds the authoritative Site. Run
-the resulting file with the system WebView. Every new package uses an
-automatically generated authenticated envelope or an optional 1 to 8 digit
-sharing PIN, and rejects modified bytes. The PIN is a sharing lock rather than
-strong encryption. Program files stay in memory; only local data is
-retained under
-`~/.luon/{type}/{short-id}`.
+Every signed-in account can export an owned WEB or APP. Lite and Pro subscribers
+can add a sharing PIN. Packages use an authenticated envelope, reject modified
+bytes, and keep local data under ~/.luon. `app build` can turn one into a
+standalone app.
 
 ## Quick reference
 
@@ -90,13 +86,14 @@ The CLI covers a Site from creation through local operation.
 | luon prepare [path] | Regenerate routes, imports, and types |
 | luon dev [path] | Run local HMR through Agent |
 | luon build [path] | Create a production dist |
-| luon export <site-id> | Export an owned server Site as `.luon` |
+| luon export <site-id> | Export an owned Site as .luon |
 | luon start [path] | Run an existing production build |
 | luon stop / status / logs | Operate an Agent-owned Site |
 | luon update [--check] | Inspect or align Luon packages |
-| luon product.luon | Run a portable package in Luon WebView |
-| luon product.luon --browser | Run it in the default browser |
-| luon product.luon --headless | Run it without a window |
+| luon product.luon | Run a portable package in WebView |
+| luon app build product.luon | Build a standalone desktop app |
+| luon product.luon --browser | Use the default browser |
+| luon product.luon --headless | Run without a window |
 
 ### Installation and state
 
@@ -123,7 +120,7 @@ Use the terminal or the visual controller for the same local work.
 | Inspect processes and logs | Agent dashboard |
 | Open the dashboard | agent.luon.dev or luon agent open |
 | Open an APP Template | luon:// launcher and WebView |
-| Open a portable Site | Double-click `.luon` or run `luon file.luon` |
+| Open a portable Site | Double-click .luon or run luon file.luon |
 
 ## Examples
 
@@ -165,6 +162,26 @@ luon update --check
 luon update
 ```
 
+### Run a portable Site
+
+WebView is the default; browser and headless modes are explicit.
+
+```bash
+luon ./product.luon
+luon ./product.luon --browser
+luon ./product.luon --headless
+```
+
+### Build a standalone app
+
+The result runs without Luon CLI or Bun on the destination.
+
+```bash
+luon app build ./product.luon
+luon app build ./product.luon --out ./release/Product
+luon app build ./product.luon --target windows-x64
+```
+
 ## API reference
 
 ### `luon init [path]`
@@ -199,6 +216,10 @@ Control local execution and dashboard.
 
 Install the local App Preview launcher.
 
+### `luon app build <file.luon>`
+
+Build a host or cross-compiled standalone desktop app.
+
 ### `luon update [--check]`
 
 Check or install current packages.
@@ -214,7 +235,8 @@ Print command usage or versions.
 3. Initialize or enter a Site and generate its .build contracts.
 4. Use dev for HMR or build to create a production dist.
 5. Use start only after a successful production build.
-6. Export `.luon` when the built Site must run without its source folder.
+6. Export .luon when a built Site must run without its source folder.
+7. Use app build when the destination should not need Luon CLI or Bun.
 
 ## Boundaries
 
@@ -222,8 +244,9 @@ Print command usage or versions.
 - prepare, dev, and build may align the Site's latest Luon dependencies.
 - CLI state lives under ~/.luon; workspace logs stay in luon-logs.
 - The CLI account file is private and never enters Site source or .build.
-- `.luon` keeps mutable data in `~/.luon/{web|app|bot}/{short-id}` and reuses it
-  for later packages with the same Site ID.
+- .luon data persists under ~/.luon/{web|app}/{short-id}.
+- New .luon files use automatic authenticated encryption and reject changes.
+- Standalone builds default to the host or cross-compile with --target.
 - Use luon help <command> for the installed version's exact options.
 
 ## More documentation
@@ -231,8 +254,9 @@ Print command usage or versions.
 - [Complete CLI guide](https://docs.luon.dev/guide/cli)
 - [Quick start](https://docs.luon.dev/guide/quick-start)
 - [Build and run](https://docs.luon.dev/guide/build-run)
+- [Portable Luon files](https://docs.luon.dev/guide/portable)
 - [CLI source on GitHub](https://github.com/predeve/luon-cli)
-- [WebView source and releases](https://github.com/predeve/luon-webview)
+- [WebView package](https://pkg.luon.dev/packages/webview/)
 
 ## License
 

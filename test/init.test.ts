@@ -34,6 +34,9 @@ describe("CLI init", () => {
       tailwindcss: "latest",
     });
     expect(pkg.devDependencies.shadcn).toBeUndefined();
+    expect(await Bun.file(join(root, "app.config.json")).json()).toEqual({
+      icons: { autoGenerate: false },
+    });
     expect(await Bun.file(join(root, "components.json")).exists()).toBeFalse();
     expect(await Bun.file(join(root, ".build", "components.json")).exists())
       .toBeFalse();

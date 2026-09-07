@@ -6,7 +6,7 @@ import { readAccount, type Account } from "./account.ts";
 type Send = (input: string | URL | Request, init?: RequestInit) =>
   Promise<Response>;
 
-const siteRule = /^(?:web|app|bot)-[a-z0-9-]{1,64}$/;
+const siteRule = /^(?:web|app)-[a-z0-9-]{1,64}$/;
 
 function stamp(value: string) {
   const date = new Date(value);
