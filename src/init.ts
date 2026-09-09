@@ -2,6 +2,7 @@ import { mkdir, readdir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
 import { prepareProject } from "@luon/runtime/project";
+import { mcpStarter } from "@luon/runtime/mcp-build";
 
 const favicon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <circle cx="32" cy="32" r="30" fill="#090b16"/>
@@ -171,6 +172,7 @@ export async function initProject(input: string, yes = false) {
   ]);
   const name = id(basename(root));
   await Promise.all([
+    Bun.write(join(root, "mcp.config.ts"), mcpStarter),
     Bun.write(join(root, "bunfig.toml"), [
       "[install.scopes]",
       '"@luon" = { url = "https://pkg.luon.dev/" }',
@@ -222,7 +224,8 @@ export async function initProject(input: string, yes = false) {
         target: "ESNext",
         types: ["bun"],
       },
-      include: [".build/auto-imports.d.ts", "app", "server", "shared"],
+      include: [".build/auto-imports.d.ts", "app", "server", "shared",
+        "mcp.config.ts"],
     }, null, 2)}\n`),
     Bun.write(join(root, "app", "layouts", "default.tsx"), [
       "import type { LayoutProps } from \"@luon/runtime\";",

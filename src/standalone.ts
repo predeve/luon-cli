@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { optimizeAsset, staticPayload } from "./static-app.ts";
 import { playerFeatures, playerPlugin } from "./player-build.ts";
+import { crawlAssets } from "./player-crawl.ts";
 import { applyEngine, enginePlan } from "./engine.ts";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readLuon, writeLuon } from "@luon/runtime/luon-file";
-import { viewBin } from "@luon/webview";
+import { checkStorage, viewBin, type ViewStorage } from "@luon/webview";
 
 import type { AppTarget, Args } from "./args.ts";
 import { buildIcon } from "./icon.ts";
@@ -34,49 +35,49 @@ type TargetSpec = {
 
 const registry = "https://pkg.luon.dev";
 const targets: Record<AppTarget, TargetSpec> = {
-  "linux-arm64": {
+  "linux-arm": {
     arch: "arm64",
     bun: "bun-linux-arm64",
-    name: "linux-arm64",
-    native: "@luon/webview-linux-arm64",
+    name: "linux-arm",
+    native: "@luon/webview-linux-arm",
     platform: "linux",
   },
-  "linux-x64": {
+  "linux-x86": {
     arch: "x64",
     bun: "bun-linux-x64",
-    name: "linux-x64",
-    native: "@luon/webview-linux-amd64",
+    name: "linux-x86",
+    native: "@luon/webview-linux-x86",
     platform: "linux",
   },
-  "macos-arm64": {
+  "macos-arm": {
     arch: "arm64",
     bun: "bun-darwin-arm64",
-    name: "macos-arm64",
-    native: "@luon/webview-macos-arm64",
+    name: "macos-arm",
+    native: "@luon/webview-macos-arm",
     platform: "darwin",
   },
-  "windows-arm64": {
+  "windows-arm": {
     arch: "arm64",
     bun: "bun-windows-arm64",
-    name: "windows-arm64",
-    native: "@luon/webview-windows-arm64",
+    name: "windows-arm",
+    native: "@luon/webview-windows-arm",
     platform: "win32",
   },
-  "windows-x64": {
+  "windows-x86": {
     arch: "x64",
     bun: "bun-windows-x64",
-    name: "windows-x64",
-    native: "@luon/webview-windows-amd64",
+    name: "windows-x86",
+    native: "@luon/webview-windows-x86",
     platform: "win32",
   },
 };
 
 function hostTarget(): AppTarget | undefined {
-  const arch = process.arch === "arm64" ? "arm64"
-    : process.arch === "x64" ? "x64" : undefined;
+  const arch = process.arch === "arm64" ? "arm"
+    : process.arch === "x64" ? "x86" : undefined;
   if (!arch) return;
-  if (process.platform === "darwin" && arch === "arm64") {
-    return "macos-arm64";
+  if (process.platform === "darwin" && arch === "arm") {
+    return "macos-arm";
   }
   if (process.platform === "linux") return `linux-${arch}`;
   if (process.platform === "win32") return `windows-${arch}`;
@@ -194,8 +195,11 @@ async function remoteView(target: TargetSpec, root: string, minimum = 0) {
   }
   const name = target.platform === "win32" ? "webview.exe" : "webview";
   const native = join(root, name);
-  const file = tarFile(Bun.gunzipSync(bytes), `package/bin/${name}`);
+  const archive = Bun.gunzipSync(bytes);
+  const file = tarFile(archive, `package/bin/${name}`);
   await writeFile(native, file, { mode: 0o700 });
+  const marker = tarFile(archive, "package/bin/storage-compat.json");
+  await writeFile(join(root, "storage-compat.json"), marker, { mode: 0o600 });
   return native;
 }
 
@@ -256,9 +260,12 @@ function playerSource(
   pglite?: [string, string, string],
   icon?: string,
   icons: Array<[string, string]> = [],
+  config?: ViewStorage,
+  crawl?: string,
 ) {
   const file = JSON.stringify(input);
   const view = JSON.stringify(webview);
+  const storage = JSON.stringify(join(dirname(webview), "storage-compat.json"));
   const iconImport = icon
     ? `import icon from ${JSON.stringify(icon)} with { type: "file" };`
     : "const icon = \"\";";
@@ -294,24 +301,57 @@ function playerSource(
     "    return;",
     "  }",
   ].join("\n") : "";
+  const crawlImport = crawl
+    ? `import crawl from ${JSON.stringify(crawl)} with { type: "file" };`
+    : "";
+  const crawlStart = crawl ? `
+  const archive = await asset(crawl, "crawl.tar.gz");
+  const folder = join(dirname(archive), "crawl");
+  const worker = join(folder, "worker.js");
+  if (!await Bun.file(join(folder, ".ready")).exists()) {
+    const temp = folder + "." + process.pid;
+    await mkdir(temp, { recursive: true, mode: 0o700 });
+    try {
+      await new Bun.Archive(await Bun.file(archive).bytes()).extract(temp);
+      await writeFile(join(temp, ".ready"), "1");
+      await rename(temp, folder).catch(async (error) => {
+        if (!await Bun.file(join(folder, ".ready")).exists()) throw error;
+      });
+    } finally { await rm(temp, { recursive: true, force: true }); }
+  }
+  process.env.LUON_FORMAT_BINDING = join(folder, "format.node");
+  if (process.argv.includes("--luon-crawl-worker")) {
+    await import(pathToFileURL(worker).href);
+    return;
+  }
+` : "";
   const runtime = JSON.stringify(fileURLToPath(
     new URL("./player.ts", import.meta.url),
   ));
+  const viewModule = JSON.stringify(fileURLToPath(
+    import.meta.resolve("@luon/webview"),
+  ));
   return `import app from ${file} with { type: "file" };
 import view from ${view} with { type: "file" };
+import storage from ${storage} with { type: "file" };
 ${pgImports}
+${crawlImport}
 ${iconImport}
 ${iconImports}
 import { appendFile, chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { runPlayer } from ${runtime};
+import { viewStorage } from ${viewModule};
 ${workerImport}
+
+const viewRoot = viewStorage(${JSON.stringify(config ?? {})}).rootDir;
 
 async function asset(source, name) {
   const data = await Bun.file(source).bytes();
   const hash = new Bun.CryptoHasher("sha256").update(data).digest("hex");
-  const root = join(homedir(), ".luon", "player", hash);
+  const root = join(viewRoot, "assets", hash);
   const file = join(root, name);
   if (await Bun.file(file).exists()) return file;
   await mkdir(root, { mode: 0o700, recursive: true });
@@ -337,8 +377,18 @@ async function main() {
     ? "\\\\\\\\.\\\\pipe\\\\luon-player-" + workerKey
     : join(process.env.LUON_CONFIG_DIR, "worker.sock");
 ${workerStart}
+${crawlStart}
   const viewName = process.platform === "win32" ? "webview.exe" : "webview";
   process.env.LUON_WEBVIEW_BIN = await asset(view, viewName);
+  const marker = join(dirname(process.env.LUON_WEBVIEW_BIN),
+    "storage-compat.json");
+  const next = marker + "." + process.pid;
+  try {
+    await writeFile(next, await Bun.file(storage).bytes(), { mode: 0o600 });
+    await rename(next, marker);
+  } finally {
+    await rm(next, { force: true });
+  }
 ${pgSetup}
   if (icon) {
     const iconName = "icon" + extname(icon);
@@ -504,6 +554,7 @@ export async function buildStandalone(args: Args) {
     const bridge = pkg.manifest.app?.window?.native === true;
     const native = await targetView(target, temp,
       bridge ? 10 : fullstack ? 0 : 8);
+    await checkStorage(native);
     let pglite: [string, string, string] | undefined;
     const features = playerFeatures(pkg.manifest);
     if (fullstack
@@ -545,6 +596,9 @@ export async function buildStandalone(args: Args) {
       pglite,
       icon,
       icons,
+      pkg.manifest.app?.window?.storage as ViewStorage | undefined,
+      pkg.manifest.app?.window?.browserControl === true
+        ? await crawlAssets(temp, target.platform, target.arch) : undefined,
     ));
     if (target.platform === "darwin") {
       const bundle = join(temp, `${safeName(pkg.manifest.title)}.app`);

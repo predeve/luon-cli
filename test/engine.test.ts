@@ -29,11 +29,11 @@ test("engine preference defaults to optimization and validates CLI input", () =>
 
 test("optimization falls back safely and compatibility retains Bun", async () => {
   const pkg = app();
-  expect((await enginePlan(pkg, "macos-arm64", "compatible", true)).engine)
+  expect((await enginePlan(pkg, "macos-arm", "compatible", true)).engine)
     .toBe("bun");
-  expect((await enginePlan(pkg, "macos-arm64", "optimize", false)).engine)
+  expect((await enginePlan(pkg, "macos-arm", "optimize", false)).engine)
     .toBe("bun");
-  const plan = await enginePlan(pkg, "macos-arm64", "optimize", true);
+  const plan = await enginePlan(pkg, "macos-arm", "optimize", true);
   expect(plan.engine).toBe("low");
   const result = await applyEngine(pkg, plan);
   expect(await result.files.get("site/index.html")!.text())
@@ -41,13 +41,13 @@ test("optimization falls back safely and compatibility retains Bun", async () =>
   expect(result.manifest.app?.window?.native).toBe(true);
   expect(pkg.manifest.app).toBeUndefined();
   pkg.files.set("low/entry.js", new File(["changed"], "entry.js"));
-  expect((await enginePlan(pkg, "macos-arm64", "optimize", true)).engine)
+  expect((await enginePlan(pkg, "macos-arm", "optimize", true)).engine)
     .toBe("bun");
   delete pkg.manifest.low;
-  expect((await enginePlan(pkg, "macos-arm64", "optimize", true)).engine)
+  expect((await enginePlan(pkg, "macos-arm", "optimize", true)).engine)
     .toBe("bun");
   pkg.manifest.mode = "static";
-  expect((await enginePlan(pkg, "macos-arm64", "compatible", true)).engine)
+  expect((await enginePlan(pkg, "macos-arm", "compatible", true)).engine)
     .toBe("native");
 });
 
@@ -68,7 +68,7 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
       await Bun.write(input, await writeLuon(pkg));
       const output = await buildStandalone({ command: "app", appAction: "build",
         root: input, output: join(root, "Low Check.app"), open: false, yes: false,
-        preference: "optimize", target: "macos-arm64" });
+        preference: "optimize", target: "macos-arm" });
       const executable = Bun.file(join(output, "Contents/MacOS/Luon Player"));
       expect(executable.size).toBeLessThan(2 * 1024 * 1024);
       const payload = await Bun.file(join(output,
@@ -77,3 +77,15 @@ test.skipIf(process.platform !== "darwin" || process.arch !== "arm64")(
     } finally { await rm(root, { recursive: true, force: true }); }
   },
 );
+
+test("static and remote browser hosts retain Bun for scripts and MCP", async () => {
+  for (const data of ["local", "server"] as const) {
+    for (const window of [{ browserControl: true }, { mcpActive: true }]) {
+      const pkg = app();
+      Object.assign(pkg.manifest, { mode: "static", data, app: { window } });
+      for (const mode of ["optimize", "compatible"] as const) {
+        expect((await enginePlan(pkg, "macos-arm", mode)).engine).toBe("bun");
+      }
+    }
+  }
+});

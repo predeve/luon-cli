@@ -53,18 +53,18 @@ test("reuses disk-backed package content without rewriting assets", async () => 
 test("native standalone is explicit and only changes the requested target", async () => {
   const pkg = await fixture();
   pkg.manifest.mode = "fullstack";
-  expect(nativeApp(pkg.manifest, "macos-arm64")).toBe(false);
+  expect(nativeApp(pkg.manifest, "macos-arm")).toBe(false);
   pkg.manifest.app = { window: { native: true },
-    standalone: { "macos-arm64": "native" } };
-  expect(nativeApp(pkg.manifest, "macos-arm64")).toBe(true);
-  expect(nativeApp(pkg.manifest, "windows-x64")).toBe(false);
-  expect(nativeApp(pkg.manifest, "linux-arm64")).toBe(false);
-  pkg.manifest.app.standalone!["windows-x64"] = "native";
-  pkg.manifest.app.standalone!["linux-arm64"] = "native";
-  expect(nativeApp(pkg.manifest, "windows-x64")).toBe(true);
-  expect(nativeApp(pkg.manifest, "linux-arm64")).toBe(true);
+    standalone: { "macos-arm": "native" } };
+  expect(nativeApp(pkg.manifest, "macos-arm")).toBe(true);
+  expect(nativeApp(pkg.manifest, "windows-x86")).toBe(false);
+  expect(nativeApp(pkg.manifest, "linux-arm")).toBe(false);
+  pkg.manifest.app.standalone!["windows-x86"] = "native";
+  pkg.manifest.app.standalone!["linux-arm"] = "native";
+  expect(nativeApp(pkg.manifest, "windows-x86")).toBe(true);
+  expect(nativeApp(pkg.manifest, "linux-arm")).toBe(true);
   pkg.manifest.database = true;
-  expect(() => nativeApp(pkg.manifest, "macos-arm64")).toThrow("no local DB");
+  expect(() => nativeApp(pkg.manifest, "macos-arm")).toThrow("no local DB");
 });
 
 test("stores duplicate static resource bytes only once", async () => {
@@ -75,6 +75,35 @@ test("stores duplicate static resource bytes only once", async () => {
   const marker = "identical-resource-for-deduplication";
   expect(bytes.indexOf(marker)).toBe(bytes.lastIndexOf(marker));
   expect(bytes.indexOf(marker)).toBeGreaterThan(0);
+});
+
+test("static payload preserves storage choices for the destination device", async () => {
+  const pkg = await fixture();
+  for (const storage of [undefined, {
+    rootDir: "~/views", currentProfile: "candy.json", cache: "shared",
+  }]) {
+    pkg.manifest.app = { window: { storage } };
+    const data = Buffer.from(await (
+      await staticPayload(pkg, undefined, [])
+    ).arrayBuffer());
+    let offset = 0;
+    const text = () => {
+      const size = data.readUInt32LE(offset);
+      offset += 4;
+      const value = data.subarray(offset, offset + size).toString();
+      offset += size;
+      return value;
+    };
+    expect(text()).toBe(pkg.manifest.id);
+    const count = data.readUInt32LE(offset);
+    offset += 4;
+    const args = Array.from({ length: count }, text);
+    const value = (name: string) => args[args.indexOf(name) + 1];
+    expect(value("--root-dir")).toBe(storage?.rootDir ?? "~/.luon/webview");
+    expect(value("--current-profile"))
+      .toBe(storage?.currentProfile ?? "default");
+    expect(value("--cache-dir")).toBe(storage?.cache ?? "caches");
+  }
 });
 
 test("opens server packages at their original top-level URL", async () => {
@@ -94,4 +123,19 @@ test("opens server packages at their original top-level URL", async () => {
   const payload = await staticPayload(pkg, undefined, []);
   expect(Buffer.from(await payload.arrayBuffer()).includes(page)).toBe(true);
   expect(pkg.files.get("site/index.html")!.size).toBe(0);
+});
+
+test("ordinary players omit the script formatter", async () => {
+  const { playerPlugin } = await import("../src/player-build.ts");
+  const pkg = await fixture();
+  const result = await Bun.build({
+    entrypoints: [join(import.meta.dir, "../src/crawl.ts")],
+    plugins: [playerPlugin(pkg.manifest)], target: "bun", minify: true,
+  });
+  expect(result.success).toBe(true);
+  const code = await result.outputs[0]!.text();
+  expect(code).toContain("crawlService");
+  expect(code).not.toContain("oxfmt");
+  expect(code).not.toContain("prettier");
+  expect(code.length).toBeLessThan(200);
 });

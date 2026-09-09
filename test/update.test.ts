@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { updateLines } from "../src/version.ts";
 
 import {
   installTargets,
@@ -40,6 +41,14 @@ const meta = {
 };
 
 describe("CLI update", () => {
+  test("shows only before/after versions and omits unchanged components", () => {
+    expect(updateLines(current, current))
+      .toEqual(["Luon CLI: 0.1.5 → 0.1.5"]);
+    expect(updateLines({ ...current, webview: "0.3.33" }, {
+      ...current, webview: "0.3.34",
+    })).toEqual(["Luon CLI: 0.1.5 → 0.1.5", "WebView: 0.3.33 → 0.3.34"]);
+  });
+
   test("refreshes the native package even when CLI versions match", async () => {
     const packages = await installTargets(target, async (id) => {
       const version = id === "@luon/webview" ? "0.3.17" : "0.3.14";
@@ -50,12 +59,12 @@ describe("CLI update", () => {
     }, "win32", "x64");
     expect(packages["@luon/cli"]).toBe(target.cli);
     expect(packages["@luon/webview"]).toBe("0.3.17");
-    expect(packages["@luon/webview-windows-amd64"]).toBe("0.3.14");
+    expect(packages["@luon/webview-windows-x86"]).toBe("0.3.14");
     expect(Object.keys(packages)).toHaveLength(6);
     expect(webviewName("darwin", "arm64"))
-      .toBe("@luon/webview-macos-arm64");
+      .toBe("@luon/webview-macos-arm");
     expect(webviewName("linux", "arm64"))
-      .toBe("@luon/webview-linux-arm64");
+      .toBe("@luon/webview-linux-arm");
     expect(webviewName("darwin", "x64")).toBe("");
     await expect(installTargets(target, async () => ({
       "dist-tags": { latest: "0.3.14" }, versions: {},

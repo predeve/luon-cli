@@ -34,3 +34,18 @@ export function versionLine(value: Versions) {
     + ` · Runtime ${value.runtime}`
     + ` · Worker ${value.worker}`;
 }
+
+
+export function updateLines(
+  before: Record<string, string | undefined>,
+  after: Record<string, string>,
+) {
+  const labels: Record<string, string> = {
+    cli: "Luon CLI", agent: "Agent", runtime: "Runtime", worker: "Worker",
+    webview: "WebView",
+  };
+  return Object.entries(after)
+    .filter(([name, version]) => name === "cli" || before[name] !== version)
+    .map(([name, version]) => `${labels[name] || name}: `
+      + `${before[name] || "not installed"} → ${version}`);
+}

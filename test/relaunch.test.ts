@@ -15,6 +15,15 @@ test("retained package survives moving the download and reopens without copying 
       expect(await readFile(target, "utf8")).toBe("saved package bytes");
       expect(await keepPackage(target, root)).toBe(target);
       expect(await readFile(target, "utf8")).toBe("saved package bytes");
+      const data = join(root, "data", "backups.json");
+      const backup = join(root, "files", "backup.bin");
+      await Bun.write(data, '["existing backup"]');
+      await Bun.write(backup, "user backup content");
+      await Bun.write(source, "updated package bytes");
+      expect(await keepPackage(source, root)).toBe(target);
+      expect(await readFile(target, "utf8")).toBe("updated package bytes");
+      expect(await readFile(data, "utf8")).toBe('["existing backup"]');
+      expect(await readFile(backup, "utf8")).toBe("user backup content");
       expect((await stat(target)).mode & 0o777).toBe(0o600);
       expect(cliCommand(["file", target, "--webview"]).slice(-3))
         .toEqual(["file", target, "--webview"]);

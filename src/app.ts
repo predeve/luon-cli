@@ -1,3 +1,5 @@
+import { patchEngine } from "./patch";
+import { crawlService } from "./crawl";
 import {
   access,
   chmod,
@@ -14,6 +16,7 @@ import {
   controlView,
   openView,
   type ViewOptions,
+  type ViewStorage,
 } from "@luon/webview";
 
 import type { Args } from "./args.ts";
@@ -22,11 +25,8 @@ import { cliCommand } from "./relaunch.ts";
 import { showNotice } from "./notice.ts";
 import { iconSvg, type IconSource } from "@luon/runtime/favicon";
 import {
-  cliUpdate,
-  requireCliVersion,
   serverState,
   showServerIssue,
-  warnCliVersion,
 } from "./launch-check.ts";
 
 async function buildIcon(
@@ -255,6 +255,8 @@ async function imageSource(
   if (url.origin !== page.origin) {
     throw new Error("App image icon is outside the App.");
   }
+  // Icon paths are mutable; a CDN can retain an earlier app release.
+  url.searchParams.set("luon-icon", crypto.randomUUID());
   const response = await fetch(url, {
     headers,
     signal: AbortSignal.timeout(10_000),
@@ -388,18 +390,27 @@ export function viewOptions(
     minWidth: number(win.minWidth),
     mode: choice(win.mode, ["both", "dock", "system"]),
     native: bool(win.native),
+    browserControl: bool(win.browserControl),
+    mcp: win.mcpActive === true,
+    browserService: win.browserControl === true && win.native === true
+      ? crawlService(manifest.id) : undefined,
+    network: choice(win.network, ["cache", "direct"]),
     remember: choice(win.remember, ["all", "none", "position", "size"]),
     rememberId: manifest.id,
     resizable: bool(win.resizable),
     shadow: bool(win.shadow),
+    singleInstance: bool(win.singleInstance),
     state: choice(win.state, ["fullscreen", "maximized", "normal"]),
+    storage: win.storage as ViewStorage | undefined,
     systemIcon: statusIcon,
     systemIconSize: number(win.systemIconSize),
     systemMenu: systemMenu(win.systemMenu),
+    theme: choice(win.theme, ["system", "light", "dark"]),
     title: manifest.title,
     titlebar: choice(win.titlebar, ["hidden", "system"]),
     transparent: bool(win.transparent),
     url: url.toString(),
+    userAgent: choice(win.userAgent, ["chrome", "native"]),
     width: number(win.width),
     x: number(win.x),
     y: number(win.y),
@@ -412,7 +423,7 @@ export async function openApp(value: string): Promise<void> {
     await confirmCheck(launch.callback);
     return launch.target ? openApp(launch.target) : undefined;
   }
-  const updateTask = cliUpdate();
+  if (await patchEngine()) return;
   const target = await manifestUrl(launch.manifest);
   const template = target.url.hostname.startsWith("tmp.");
   const headers: Record<string, string> = {};
@@ -486,8 +497,7 @@ export async function openApp(value: string): Promise<void> {
   const stateTask = body.source === "site"
     ? serverState(page.toString())
     : Promise.resolve("ready" as const);
-  const [update, state] = await Promise.all([updateTask, stateTask]);
-  if (!await requireCliVersion(manifest.title, update)) return;
+  const state = await stateTask;
   if (state !== "ready") {
     await showServerIssue(manifest.title, state);
     return;
@@ -540,7 +550,6 @@ export async function openApp(value: string): Promise<void> {
     });
   }
   console.log(`Luon App: running · PID ${child.pid}`);
-  void warnCliVersion(update);
   const error = child.stderr
     ? new Response(child.stderr).text()
     : Promise.resolve("");

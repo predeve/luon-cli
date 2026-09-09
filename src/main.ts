@@ -4,8 +4,8 @@ const help: Record<Command, string> = {
   agent: "luon agent [install|start|stop|restart|status|open]",
   app: "luon app build <package.luon> [--out path] [--target platform]\n"
     + "  [--preference optimize|compatible] (default: optimize)\n"
-    + "Targets: macos-arm64, windows-x64, windows-arm64, linux-x64, "
-    + "linux-arm64\nluon app [check|install]",
+    + "Targets: macos-arm, windows-x86, windows-arm, linux-x86, "
+    + "linux-arm\nluon app [check|install]",
   build: "luon build [path]",
   dev: "luon dev [path] [--port number] [--open]",
   export: "luon export <site-id>",
@@ -19,7 +19,9 @@ const help: Record<Command, string> = {
   start: "luon start [path] [--port number] [--open]",
   status: "luon status [path]",
   stop: "luon stop [path]",
-  update: "luon update [--check]",
+  update: "luon update [--auto|--check]\n"
+    + "  --auto   Open the update prompt\n"
+    + "  --check  Open automatic update settings",
   version: "luon version [--json]",
 };
 
@@ -47,7 +49,9 @@ function show(topic?: Command) {
     "  luon app check        Verify the native WebView package",
     "  luon app build <file> Build a native desktop app",
     "  luon product.luon     Run a portable Luon package",
-    "  luon update           Update CLI, Agent, Runtime, and Worker",
+    "  luon update           Update Luon packages and installed apps",
+    "  luon update --auto    Open the update prompt",
+    "  luon update --check   Open automatic update settings",
     "  luon version          Print the CLI version",
     "",
   ].join("\n"));
@@ -65,6 +69,12 @@ export async function main(raw: string[]) {
   const args = parseArgs(raw);
   if (args.command === "help") return show(args.topic);
   if (args.command === "version") return version(args.detail, args.json);
+  if (process.env.LUON_STANDALONE !== "1") {
+    const { syncAuto } = await import("./auto-update");
+    await syncAuto().catch(error => {
+      console.error("Automatic update schedule:", String(error));
+    });
+  }
   if (args.command === "login" || args.command === "logout") {
     const { login, logout } = await import("./account.ts");
     return args.command === "login" ? login() : logout();
@@ -104,10 +114,25 @@ export async function main(raw: string[]) {
     return runService(args);
   }
   if (args.command === "update") {
+    if (args.check) {
+      const { openAuto } = await import("./auto-dialog");
+      return openAuto();
+    }
+    if (args.autoRun) {
+      const { runAuto } = await import("./auto-update");
+      return runAuto();
+    }
+    if (args.auto) {
+      const { offerPatch } = await import("./patch-dialog");
+      const accepted = await offerPatch("engine", "Luon update",
+        "Update Luon and installed apps.\nYour app data and logins are kept.",
+        { manual: true });
+      if (!accepted) return;
+    }
     const { updateCli } = await import("./update.ts");
     const { installedVersions } = await import("./version.ts");
     return updateCli({
-      check: args.check === true,
+      check: false,
       current: await installedVersions(),
     });
   }

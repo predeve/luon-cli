@@ -125,7 +125,12 @@ export async function staticPayload(
     url: url.href, window: { ...win, close: win.close || "quit" },
   }, url, icon ? `$LUON_ASSETS/${iconName}` : undefined,
   system || (favicon ? "$LUON_ASSETS/favicon.svg" : undefined), stateIcons);
-  const args = viewArgs(options);
+  // Resolve ~ and relative storage paths on the machine running the app.
+  if (options.mcp) {
+    throw Error("MCP needs the Bun app host. Export a .luon file or use the "
+      + "standard executable, not standalone native mode.");
+  }
+  const args = viewArgs(options, true);
   const urlIndex = args.indexOf("--url");
   if (urlIndex >= 0) args.splice(urlIndex, 2);
   args.push("--window-file", "$LUON_ASSETS/window.json");

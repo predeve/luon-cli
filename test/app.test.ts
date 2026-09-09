@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
+  iconSource,
   launchUrl,
   openApp,
   sendSiteAuth,
   validSiteId,
+  viewOptions,
 } from "../src/app";
 
 let server: ReturnType<typeof Bun.serve> | undefined;
@@ -15,6 +17,60 @@ afterEach(() => {
 });
 
 describe("CLI App launcher", () => {
+  test("refreshes remote icons across app releases", async () => {
+    let icon = '<svg xmlns="http://www.w3.org/2000/svg">old</svg>';
+    const cache = new Map<string, string>();
+    server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        expect(url.pathname).toBe("/preview/favicon.svg");
+        const body = cache.get(url.href) ?? icon;
+        cache.set(url.href, body);
+        return new Response(body, {
+          headers: { "content-type": "image/svg+xml" },
+        });
+      },
+    });
+    const page = new URL("/preview/", server.url);
+    const first = await iconSource("image:favicon.svg", page, {});
+    icon = '<svg xmlns="http://www.w3.org/2000/svg">feather</svg>';
+    const second = await iconSource("image:favicon.svg", page, {});
+    expect(Buffer.from(first!.data!).toString()).toContain("old");
+    expect(Buffer.from(second!.data!).toString()).toContain("feather");
+    expect(cache.size).toBe(2);
+  });
+
+  test("forwards native browser compatibility settings", () => {
+    const url = new URL("https://example.com");
+    const options = viewOptions({
+      id: "browser", title: "Browser", url: url.href,
+      window: { network: "direct", userAgent: "native", theme: "light",
+        browserControl: true, mcpActive: true },
+    }, url, undefined, undefined);
+    expect(options.browserControl).toBe(true);
+    expect(options.mcp).toBe(true);
+    expect(options.network).toBe("direct");
+    expect(options.userAgent).toBe("native");
+    expect(options.theme).toBe("light");
+  });
+
+  test("reads singleInstance only from the window configuration", () => {
+    const url = new URL("https://app.luon.dev/b08cce6cb5ed");
+    for (const value of [undefined, false, true, "true"]) {
+      const manifest = {
+        id: "app-b08cce6cb5ed",
+        title: "Example",
+        url: url.href,
+        window: { singleInstance: value },
+      };
+      const options = viewOptions(manifest, url, undefined, undefined);
+      expect(options.singleInstance).toBe(
+        typeof value === "boolean" ? value : undefined,
+      );
+    }
+  });
+
   test("accepts WEB and APP Site identities", () => {
     expect(validSiteId("web-b572bf27da39")).toBeTrue();
     expect(validSiteId("app-d6eafa1eb253")).toBeTrue();

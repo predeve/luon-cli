@@ -5,6 +5,9 @@ import { main } from "../src/main.ts";
 try {
   await main(process.argv.slice(2));
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  const errors = error instanceof AggregateError ? error.errors : [error];
+  for (const item of errors) {
+    console.error(item instanceof Error ? item.message : String(item));
+  }
   process.exitCode = 1;
 }

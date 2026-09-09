@@ -52,11 +52,11 @@ describe("CLI arguments", () => {
       "--out",
       "Product",
       "--target",
-      "windows-x64",
+      "windows-x86",
     ])).toMatchObject({
       appAction: "build",
       output: "Product",
-      target: "windows-x64",
+      target: "windows-x86",
     });
     expect(parseArgs(["app", "open", "luon://app.luon.dev/b08cce6cb5ed"]))
       .toMatchObject({ appAction: "open", command: "app" });

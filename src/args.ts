@@ -28,11 +28,11 @@ export type ServiceAction =
 export type AppAction = "build" | "check" | "install" | "open";
 
 export type AppTarget =
-  | "linux-arm64"
-  | "linux-x64"
-  | "macos-arm64"
-  | "windows-arm64"
-  | "windows-x64";
+  | "linux-arm"
+  | "linux-x86"
+  | "macos-arm"
+  | "windows-arm"
+  | "windows-x86";
 
 export type Args = {
   command: Command;
@@ -40,6 +40,8 @@ export type Args = {
   appAction?: AppAction;
   appUrl?: string;
   check?: boolean;
+  auto?: boolean;
+  autoRun?: boolean;
   detail?: boolean;
   json?: boolean;
   open: boolean;
@@ -84,11 +86,11 @@ const actions = new Set<ServiceAction>([
 ]);
 
 const appTargets = new Set<AppTarget>([
-  "linux-arm64",
-  "linux-x64",
-  "macos-arm64",
-  "windows-arm64",
-  "windows-x64",
+  "linux-arm",
+  "linux-x86",
+  "macos-arm",
+  "windows-arm",
+  "windows-x86",
 ]);
 
 function parseService(command: "agent", values: string[]): Args {
@@ -180,12 +182,19 @@ function parseUpdate(values: string[]): Args {
     yes: false,
   };
   let check = false;
+  let auto = false;
+  let autoRun = false;
   for (const value of values) {
     if (value === "--check") check = true;
+    else if (value === "--auto") auto = true;
+    else if (value === "--auto-run") autoRun = true;
     else throw new Error(`Unknown option for luon update: ${value}`);
   }
+  if ([check, auto, autoRun].filter(Boolean).length > 1) {
+    throw new Error("Choose only one update option.");
+  }
   return {
-    check,
+    check, auto, autoRun,
     command: "update",
     open: false,
     root: ".",

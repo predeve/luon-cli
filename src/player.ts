@@ -5,7 +5,7 @@ import { openView } from "@luon/webview";
 import { packageRoot } from "@luon/runtime/luon-file";
 import { cachedLuon } from "./package-cache.ts";
 import {
-  fullstackServer, packageIcons, siteFiles, startDatabase,
+  fullstackServer, packageIcons, siteFiles, startDatabase, staticServer,
 } from "./luon-file.ts";
 import { viewOptions } from "./app.ts";
 
@@ -15,13 +15,22 @@ export async function runPlayer(path: string) {
   await Promise.all(["assets", "cache", "data", "files"].map((name) => (
     mkdir(join(root, name), { recursive: true, mode: 0o700 })
   )));
-  const db = await startDatabase(pkg, root);
+  const remote = pkg.manifest.data === "server";
+  const db = remote ? undefined : await startDatabase(pkg, root);
   let runtime: Awaited<ReturnType<typeof fullstackServer>> | undefined;
+  let server: ReturnType<typeof staticServer> | undefined;
   try {
-    runtime = await fullstackServer(
-      pkg, siteFiles(pkg), root, await findPort(), db?.url,
-    );
-    const url = `http://localhost:${runtime.server.port}`;
+    if (!remote) {
+      const files = siteFiles(pkg);
+      const port = await findPort();
+      if (pkg.manifest.mode === "static") server = staticServer(files, port);
+      else {
+        runtime = await fullstackServer(pkg, files, root, port, db?.url);
+        server = runtime.server;
+      }
+    }
+    const url = remote ? pkg.manifest.url!
+      : `http://localhost:${server!.port}`;
     if (process.argv.includes("--luon-headless")) {
       console.log(url);
       await new Promise<void>((resolve) => {
@@ -41,7 +50,7 @@ export async function runPlayer(path: string) {
       if (code) throw new Error((await error).trim() || "App window failed.");
     }
   } finally {
-    await Promise.resolve(runtime?.server.stop(true));
+    await Promise.resolve(server?.stop(true));
     await runtime?.worker.close();
     await db?.close();
     if (runtime?.program) await rm(runtime.program, { recursive: true, force: true });

@@ -14,10 +14,14 @@ export async function enginePlan(pkg: LuonFile, target: string,
   if (preference !== "optimize" && preference !== "compatible") {
     throw new Error("Build preference must be optimize or compatible.");
   }
+  const bun = (reason: string): EnginePlan => ({ engine: "bun", reason });
+  const window = manifest.app?.window;
+  if (window?.browserControl === true || window?.mcpActive === true) {
+    return bun("Browser scripts and MCP require the Bun app host.");
+  }
   if (manifest.data === "server" || manifest.mode === "static") {
     return { engine: "native", reason: "This app does not need local Bun." };
   }
-  const bun = (reason: string): EnginePlan => ({ engine: "bun", reason });
   if (preference === "compatible") return bun("Compatibility first selected.");
   if (nativeApp(manifest, target)) {
     return { engine: "low", reason: "The app declares a native target." };

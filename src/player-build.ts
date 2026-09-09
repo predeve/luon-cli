@@ -29,6 +29,12 @@ export function playerPlugin(manifest: LuonManifest): BunPlugin {
   return {
     name: "luon-player-features",
     setup(build) {
+      if (manifest.app?.window?.browserControl !== true) {
+        build.onLoad({ filter: /[/\\]cli[/\\]src[/\\]crawl\.ts$/ }, () => ({
+          contents: "export const crawlService = () => undefined;",
+          loader: "js",
+        }));
+      }
       build.onLoad({
         filter: /[/\\]worker[/\\]src[/\\](db|pglite|excel|zip)\.ts$/,
       }, ({ path }) => {

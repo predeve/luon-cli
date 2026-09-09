@@ -1,3 +1,5 @@
+import { watchRestart } from "./restart-watch";
+import { patchApp, patchEngine, savedApp } from "./patch";
 import {
   mkdtemp,
   mkdir,
@@ -22,7 +24,7 @@ import {
   readSeeds,
   resetSeedSequences,
 } from "@luon/runtime/seed";
-import { controlViewId, openView } from "@luon/webview";
+import { controlViewId, openView, type ViewStorage } from "@luon/webview";
 import { cliCommand, keepPackage } from "./relaunch.ts";
 import {
   startWorker,
@@ -39,12 +41,8 @@ import {
 } from "./app.ts";
 import { askPassword } from "./notice.ts";
 import {
-  cliUpdate,
-  requireCliVersion,
   requireServer,
   showInvalidPackage,
-  warnCliVersion,
-  type CliUpdate,
 } from "./launch-check.ts";
 
 type LocalDb = {
@@ -450,36 +448,43 @@ async function openWindow(
   pkg: LuonFile,
   root: string,
   url: string,
-  update?: CliUpdate,
   relaunch?: string[],
 ) {
   const page = new URL(url);
   const icons = await packageIcons(pkg, root, page);
+  let restart = false;
   const child = await openView({ ...viewOptions({
     id: pkg.manifest.id,
     title: pkg.manifest.title,
     url,
     window: pkg.manifest.app?.window || {},
-  }, page, icons.icon, icons.statusIcon, icons.icons), relaunch });
+  }, page, icons.icon, icons.statusIcon, icons.icons), relaunch,
+    managed: process.env.LUON_STANDALONE !== "1" });
   console.log(`Luon WebView: running · PID ${child.pid}`);
-  void warnCliVersion(update);
-  const code = await child.exited;
-  if (code !== 0) {
+
+  const stop = process.env.LUON_STANDALONE === "1" ? undefined
+    : watchRestart(pkg.manifest, root, child, () => { restart = true; });
+  let code: number;
+  try { code = await child.exited; } finally { await stop?.stop(); }
+  if (code !== 0 && !restart) {
     const error = child.stderr
       ? (await new Response(child.stderr).text()).trim()
       : "";
     throw new Error(error || `Luon WebView exited with code ${code}.`);
   }
+  return restart;
 }
 
 export async function runLuonFile(args: Args) {
-  const path = filePath(args.root);
+  let path = filePath(args.root);
+  const standalone = process.env.LUON_STANDALONE === "1";
+  if (!standalone) path = await savedApp(path);
   if (!await Bun.file(path).exists()) {
     throw new Error(`The .luon file was not found: ${path}`);
   }
   const title = basename(path, extname(path)) || "Luon package";
   const bytes = await Bun.file(path).slice(0, 256).bytes();
-  const pkg = isPasswordLuon(bytes)
+  let pkg = isPasswordLuon(bytes)
     ? await askPassword(title, (password) => (
       readLuon(Bun.file(path), password).catch(() => undefined)
     ), { pin: isPinLuon(bytes) })
@@ -488,10 +493,16 @@ export async function runLuonFile(args: Args) {
       return undefined;
     });
   if (!pkg) return;
-  const standalone = process.env.LUON_STANDALONE === "1";
-  const update = standalone ? undefined : await cliUpdate();
-  if (!standalone
-    && !await requireCliVersion(pkg.manifest.title, update)) return;
+  if (!standalone && args.view === "webview") {
+    if (await patchEngine()) return;
+    if (!isPasswordLuon(bytes) && process.env.LUON_APPLY_READY !== "1") {
+      const next = await patchApp(path, pkg.manifest);
+      if (next !== path) {
+        pkg = await cachedLuon(Bun.file(next));
+        path = next;
+      }
+    }
+  }
   if (pkg.manifest.data === "server" && args.view === "headless") {
     throw new Error(
       "A server-backed .luon package must open in WebView or a browser.",
@@ -500,15 +511,23 @@ export async function runLuonFile(args: Args) {
   if (pkg.manifest.data === "server"
     && !await requireServer(pkg.manifest.title, pkg.manifest.url!)) return;
   if (args.view === "webview"
-    && await controlViewId(pkg.manifest.id, "show")) {
+    && pkg.manifest.app?.window?.singleInstance === true
+    && await controlViewId(pkg.manifest.id, "show",
+      pkg.manifest.app?.window?.storage as ViewStorage | undefined)) {
     console.log(`Luon package: already running · ${pkg.manifest.id}`);
-    await warnCliVersion(update);
     return;
   }
   const root = packageRoot(pkg.manifest);
   await Promise.all(["assets", "cache", "data", "files"].map((name) => (
     mkdir(join(root, name), { mode: 0o700, recursive: true })
   )));
+  if (!standalone && args.view === "webview") await keepPackage(path, root);
+  const restartApp = () => {
+    const child = Bun.spawn(cliCommand(["file", join(root, "launch.luon"),
+      "--webview"]), { stdin: "ignore", stdout: "inherit", stderr: "inherit",
+      env: { ...process.env, LUON_PATCH_DONE: "1", LUON_APPLY_READY: "1" } });
+    child.unref();
+  };
   const relaunch = process.platform === "darwin" && !standalone
     && args.view === "webview"
     ? cliCommand(["file", await keepPackage(path, root), "--webview"])
@@ -518,10 +537,9 @@ export async function runLuonFile(args: Args) {
     console.log(`Luon package: ${pkg.manifest.title} · ${url}`);
     if (args.view === "browser") {
       await openBrowser(url);
-      await warnCliVersion(update);
       return;
     }
-    await openWindow(pkg, root, url, update, relaunch);
+    if (await openWindow(pkg, root, url, relaunch)) restartApp();
     return;
   }
   const files = siteFiles(pkg);
@@ -530,6 +548,7 @@ export async function runLuonFile(args: Args) {
   let server: LocalServer | undefined;
   let worker: LocalWorker | undefined;
   let program: string | undefined;
+  let restart = false;
   try {
     if (pkg.manifest.mode === "static") {
       server = staticServer(files, port);
@@ -550,12 +569,11 @@ export async function runLuonFile(args: Args) {
     console.log(`Luon package: ${pkg.manifest.title} · ${url}`);
     if (args.view === "browser") {
       await openBrowser(url);
-      void warnCliVersion(update);
       await waitSignal();
     } else if (args.view === "headless") {
       await waitSignal();
     } else {
-      await openWindow(pkg, root, url, update, relaunch);
+      restart = await openWindow(pkg, root, url, relaunch);
     }
   } finally {
     await Promise.resolve(server?.stop(true)).catch(() => undefined);
@@ -564,4 +582,5 @@ export async function runLuonFile(args: Args) {
     if (program) await rm(program, { force: true, recursive: true });
     delete (globalThis as Record<symbol, unknown>)[packageFiles];
   }
+  if (restart) restartApp();
 }

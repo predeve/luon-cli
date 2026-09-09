@@ -179,7 +179,7 @@ The result runs without Luon CLI or Bun on the destination.
 ```bash
 luon app build ./product.luon
 luon app build ./product.luon --out ./release/Product
-luon app build ./product.luon --target windows-x64
+luon app build ./product.luon --target windows-x86
 ```
 
 ## API reference

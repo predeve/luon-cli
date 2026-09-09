@@ -24,16 +24,16 @@ describe("standalone app output", () => {
   });
 
   test("maps cross-compile targets", () => {
-    expect(appTarget("windows-x64")).toMatchObject({
+    expect(appTarget("windows-x86")).toMatchObject({
       arch: "x64",
       bun: "bun-windows-x64",
-      native: "@luon/webview-windows-amd64",
+      native: "@luon/webview-windows-x86",
       platform: "win32",
     });
-    expect(appTarget("linux-arm64")).toMatchObject({
+    expect(appTarget("linux-arm")).toMatchObject({
       arch: "arm64",
       bun: "bun-linux-arm64",
-      native: "@luon/webview-linux-arm64",
+      native: "@luon/webview-linux-arm",
       platform: "linux",
     });
   });

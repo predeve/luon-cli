@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 
-import { type Versions, versionLine } from "./version.ts";
-import { refreshApps } from "./webview-update.ts";
+import { type Versions, versionLine, updateLines } from "./version.ts";
+
 
 export type PackageMeta = {
   "dist-tags"?: Record<string, string>;
@@ -105,7 +105,7 @@ export function webviewName(platform: string, arch: string) {
   ];
   if (!os || !["x64", "arm64"].includes(arch)
     || (os === "macos" && arch !== "arm64")) return "";
-  return `@luon/webview-${os}-${arch === "x64" ? "amd64" : arch}`;
+  return `@luon/webview-${os}-${arch === "x64" ? "x86" : "arm"}`;
 }
 
 export async function installTargets(
@@ -160,17 +160,8 @@ async function install(target: Versions) {
     if (version !== expected) {
       throw new Error(`${id}@${version} installed; expected ${expected}.`);
     }
-    if (id === "@luon/webview-macos-arm64") {
-      const count = await refreshApps(entry);
-      if (count) {
-        console.log(`Updated ${count} cached WebView apps.`
-          + " Close and reopen them.");
-      }
-    }
+
   }
-  console.log(Object.entries(packages)
-    .filter(([id]) => id.startsWith("@luon/webview"))
-    .map(([id, version]) => `${id}@${version}`).join(" · "));
 }
 
 function globalBin() {
@@ -198,15 +189,19 @@ export async function updateCli(
   options: UpdateOptions,
   deps: UpdateDeps = {},
 ) {
-  const meta = await (deps.metadata || metadata)();
-  const target = targetVersions(meta);
-  console.log(`${versionLine(options.current)} → ${versionLine(target)}`);
-  if (options.check) {
-    if (!same(options.current, target)) return;
-    console.log("Luon CLI, Agent, Runtime, and Worker are already up to date.");
+  if (!deps.metadata) {
+    const { updateSet } = await import("./patch-install");
+    await updateSet(options.check, options.current);
+    const { updateApps } = await import("./update-apps");
+    await updateApps(options.check);
     return;
   }
-  console.log("Installing the latest Luon package set…");
+  const meta = await deps.metadata();
+  const target = targetVersions(meta);
+  if (options.check) {
+    console.log(updateLines(options.current, target).join("\n"));
+    return;
+  }
   if (deps.install) await deps.install();
   else await install(target);
   const next = await (deps.installed || installed)();
@@ -215,5 +210,5 @@ export async function updateCli(
       `${versionLine(next)} installed; expected ${versionLine(target)}.`,
     );
   }
-  console.log(`${versionLine(next)} updated`);
+  console.log(updateLines(options.current, next).join("\n"));
 }
