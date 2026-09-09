@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "../src/args";
 import { autoDesktop, autoTask } from "../src/auto-login";
 import { autoCron, autoPlist } from "../src/auto-start";
-import { readAuto, runAuto, saveAuto, syncAuto } from "../src/auto-update";
+import { readAuto, runAuto, saveAuto, syncAuto, type AutoConfig } from "../src/auto-update";
 import { patchLock, readState } from "../src/patch-state";
 
 let root = "";
@@ -48,10 +48,10 @@ test("disabled and early runs do not update or postpone the due time", async () 
   await Bun.write(join(root, "auto-state.json"), JSON.stringify({ next: 200 }));
   await runAuto({ random: () => 0, root, now: 100, apply });
   expect(calls).toBe(0);
-  expect(await readState(join(root, "auto-state.json"))).toEqual({ next: 200 });
+  expect(await readState<{ next: number }>(join(root, "auto-state.json"))).toEqual({ next: 200 });
   await runAuto({ random: () => 0, root, now: 200, apply });
   expect(calls).toBe(1);
-  expect(await readState(join(root, "auto-state.json")))
+  expect(await readState<{ next: number }>(join(root, "auto-state.json")))
     .toEqual({ next: 200 + 6 * 3_600_000 });
 });
 
@@ -107,14 +107,14 @@ test("startup after a day runs once and keeps the configured interval", async ()
   await Bun.write(join(root, "auto-state.json"), JSON.stringify({ next: 100 }));
   const now = 100 + 24 * 3_600_000;
   let calls = 0;
-  const apply = async config => {
+  const apply = async (config: AutoConfig) => {
     expect(config.apps).toBe(false);
     calls++;
   };
   await runAuto({ random: () => 0, root, now, apply });
   await runAuto({ random: () => 0, root, now: now + 1, apply });
   expect(calls).toBe(1);
-  expect(await readState(join(root, "auto-state.json")))
+  expect(await readState<{ next: number }>(join(root, "auto-state.json")))
     .toEqual({ next: now + 6 * 3_600_000 });
 });
 
@@ -126,7 +126,7 @@ test("startup does not install while settings registration is in progress", asyn
   try {
     await runAuto({ random: () => 0, root, apply: async () => { calls++; } });
     expect(calls).toBe(0);
-    expect(await readState(join(root, "auto-state.json"))).toBeUndefined();
+    expect(await readState<{ next: number }>(join(root, "auto-state.json"))).toBeUndefined();
   } finally { await unlock?.(); }
 });
 
@@ -148,7 +148,7 @@ test("login migration is opt-in, once only, and preserves due time", async () =>
   await syncAuto({ root, startup });
   await syncAuto({ root, startup });
   expect(calls).toBe(1);
-  expect(await readState(join(root, "auto-state.json"))).toEqual({ next: 100 });
+  expect(await readState<{ next: number }>(join(root, "auto-state.json"))).toEqual({ next: 100 });
 });
 
 test("Windows task has current-user login and minutely triggers", () => {

@@ -18,7 +18,8 @@ export async function runPlayer(path: string) {
   const remote = pkg.manifest.data === "server";
   const db = remote ? undefined : await startDatabase(pkg, root);
   let runtime: Awaited<ReturnType<typeof fullstackServer>> | undefined;
-  let server: ReturnType<typeof staticServer> | undefined;
+  let server: ReturnType<typeof staticServer>
+    | NonNullable<typeof runtime>["server"] | undefined;
   try {
     if (!remote) {
       const files = siteFiles(pkg);

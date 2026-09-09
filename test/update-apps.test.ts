@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { packLuon, readLuon, writeLuon }
   from "@luon/runtime/luon-file";
-import { cachedFeed, storeUrl } from "../src/patch-feed";
+import { cachedFeed, storeUrl, type RequestFn } from "../src/patch-feed";
 import { patchApp } from "../src/patch";
 import { updateApps } from "../src/update-apps";
 
@@ -50,7 +50,7 @@ async function fixture(autoUpdate = false) {
     checks++;
     expect(url.searchParams.has("check")).toBe(true);
     return Response.json(feed);
-  }) as typeof fetch;
+  }) as RequestFn;
   return { path, manifest, request, feed,
     counts: () => ({ downloads, checks }) };
 }
@@ -79,7 +79,7 @@ test("app launch finds a new release despite a fresh old index cache", async () 
   const f = await fixture();
   const state = join(root, "updates");
   await cachedFeed(storeUrl, { root: state,
-    request: (async () => Response.json({ format: 1, apps: {} })) as typeof fetch });
+    request: (async () => Response.json({ format: 1, apps: {} })) as RequestFn });
   let prompts = 0;
   await patchApp(f.path, { ...f.manifest, autoPatch: true }, {
     root: state, request: f.request,
@@ -92,9 +92,9 @@ test("app launch finds a new release despite a fresh old index cache", async () 
 test("forced checks fail instead of reporting stale cache as latest", async () => {
   await fixture();
   await cachedFeed(storeUrl, { root,
-    request: (async () => Response.json({ format: 1, apps: {} })) as typeof fetch });
+    request: (async () => Response.json({ format: 1, apps: {} })) as RequestFn });
   await expect(cachedFeed(storeUrl, { root, force: true,
-    request: (async () => { throw new Error("Offline"); }) as typeof fetch,
+    request: (async () => { throw new Error("Offline"); }) as RequestFn,
   })).rejects.toThrow("Offline");
 });
 
@@ -105,7 +105,7 @@ test("a corrupt download fails without replacing the installed app", async () =>
       return new Response("corrupt release");
     }
     return f.request(input, init);
-  }) as typeof fetch;
+  }) as RequestFn;
   await expect(updateApps(false, {
     home: root, root: join(root, "updates"), request,
   })).rejects.toThrow("1 app update(s) failed");

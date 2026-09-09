@@ -1,6 +1,9 @@
 import { join } from "node:path";
 import { patchLock, patchRoot, readState, writeState } from "./patch-state";
 
+export type RequestFn = (url: string | URL,
+  init?: RequestInit) => Promise<Response>;
+
 export type EngineFeed = {
   format: 1; revision: string;
   packages: Record<string, {
@@ -18,7 +21,7 @@ export const storeUrl = "https://store.luon.dev/releases.json.gz";
 const period = 30 * 60 * 1000;
 
 export async function cachedFeed<T>(url: string, options: {
-  root?: string; now?: number; request?: typeof fetch; force?: boolean;
+  root?: string; now?: number; request?: RequestFn; force?: boolean;
 } = {}): Promise<T | undefined> {
   const root = options.root || patchRoot;
   const key = new Bun.CryptoHasher("sha256").update(url).digest("hex");

@@ -1,3 +1,4 @@
+import type { RequestFn } from "./patch-feed";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { readLuon, type LuonManifest } from "@luon/runtime/luon-file";
@@ -77,7 +78,7 @@ async function trustedFeed(url: string) {
   return (await readAccount())?.url === parsed.origin;
 }
 async function download(release: AppRelease, feed: string,
-  request: typeof fetch = fetch) {
+  request: RequestFn = fetch) {
   const url = new URL(release.url, feed);
   if (url.origin !== new URL(feed).origin || url.username || url.password) {
     throw new Error("The update download origin is invalid.");
@@ -114,7 +115,7 @@ export type PatchOptions = {
   manual?: boolean;
   check?: boolean;
   root?: string;
-  request?: typeof fetch;
+  request?: RequestFn;
   feeds?: Map<string, Promise<AppFeed | undefined>>;
   offer?: typeof offerPatch;
 };

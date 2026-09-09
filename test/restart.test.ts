@@ -78,7 +78,8 @@ test("settings script compiles and renders explicit per-app choices", () => {
   expect(page).toContain('value="05:00"');
   expect(page).toContain("Next launch only");
   expect(page).not.toContain('<img src=x');
-  const script = page.match(/<script>([\s\S]*?)<\/script>/)![1];
+  const script = page.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  if (!script) throw new Error("Settings script is missing.");
   expect(() => new Function(script)).not.toThrow();
 });
 
