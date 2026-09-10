@@ -16,7 +16,7 @@
     "url": "git+https://github.com/predeve/luon-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/predeve/luon/issues"
+    "url": "https://github.com/predeve/luon-view/issues"
   },
   "publishConfig": {
     "access": "public",
