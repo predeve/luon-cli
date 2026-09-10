@@ -61,7 +61,11 @@ export async function cachedLuon(source: Blob, cacheRoot?: string) {
   leases.add(lease);
   let index = await Bun.file(indexFile).json().catch(() => undefined);
   if (!index) {
-    const pkg = await readLuon(source);
+    let pkg = await readLuon(source);
+    if (pkg.source) {
+      const { buildSource } = await import("./source-build.ts");
+      pkg = await buildSource(pkg, path);
+    }
     const files: string[] = [];
     let size = 0;
     for (const [name, file] of pkg.files) {

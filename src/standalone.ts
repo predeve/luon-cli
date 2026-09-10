@@ -20,6 +20,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readLuon, writeLuon } from "@luon/runtime/luon-file";
+import { cachedLuon } from "./package-cache.ts";
 import { checkStorage, viewBin, type ViewStorage } from "@luon/webview";
 
 import type { AppTarget, Args } from "./args.ts";
@@ -524,6 +525,8 @@ export async function buildStandalone(args: Args) {
       "The .luon file must be valid and must not require a sharing PIN.",
     );
   });
+  const editable = !!pkg.source;
+  if (editable) pkg = await cachedLuon(Bun.file(input));
   // Only use a locally verified host until other targets publish this capability.
   const host = sameHost(target) ? viewBin() : undefined;
   const metadata = host ? await Bun.file(join(dirname(host),
@@ -576,7 +579,7 @@ export async function buildStandalone(args: Args) {
     const entry = join(temp, "player.ts");
     let source = input;
     if (fullstack) {
-      let changed = false;
+      let changed = editable;
       for (const [name, file] of pkg.files) {
         if (!name.startsWith("site/") || !name.endsWith(".png")) continue;
         const next = await optimizeAsset(name, file);
