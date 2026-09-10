@@ -1,4 +1,4 @@
-import { lstat, readdir, realpath, stat, mkdir, open } from "node:fs/promises";
+import { lstat, readdir, realpath, stat, mkdir, open, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { readLuon } from "@luon/runtime/luon-file";
@@ -117,6 +117,9 @@ export function launchpad(root = join(homedir(), ".luon"),
         await spawn(process.platform === "darwin" ? ["open", "-R", path]
           : process.platform === "win32" ? ["explorer.exe", `/select,${path}`]
           : ["xdg-open", dirname(path)]);
+      } else if (action === "delete") {
+        await unlink(path);
+        return { message: "App deleted. App data has been kept." };
       } else if (action === "update") {
         const next = await patchApp(path, pkg.manifest, { manual: true });
         if (next === path) return { message: "No newer update is available." };

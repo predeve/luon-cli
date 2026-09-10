@@ -48,6 +48,12 @@ test("Launchpad discovers retained apps after originals are removed", async () =
     await expect(library.action("app-linked", "open"))
       .rejects.toThrow("links");
     expect((await library.list()).apps).toHaveLength(1);
+    await Bun.write(join(folder, "user-data.txt"), "keep");
+    await library.action(first.id, "delete");
+    expect((await library.list()).apps).toHaveLength(0);
+    expect(await Bun.file(first.path).exists()).toBe(false);
+    expect(await Bun.file(join(folder, "user-data.txt")).text()).toBe("keep");
+    expect(await Bun.file(original).exists()).toBe(true);
   } finally {
     if (previous === undefined) delete process.env.LUON_CLI_ENTRY;
     else process.env.LUON_CLI_ENTRY = previous;
