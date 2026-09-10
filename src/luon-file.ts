@@ -1,3 +1,4 @@
+import { noteLaunch } from "./launchpad";
 import { watchRestart } from "./restart-watch";
 import { patchApp, patchEngine, savedApp } from "./patch";
 import {
@@ -476,6 +477,7 @@ async function openWindow(
 }
 
 export async function runLuonFile(args: Args) {
+  process.env.LUON_CLI_ENTRY = cliCommand([])[1]!;
   let path = filePath(args.root);
   const standalone = process.env.LUON_STANDALONE === "1";
   if (!standalone) path = await savedApp(path);
@@ -514,6 +516,7 @@ export async function runLuonFile(args: Args) {
     && pkg.manifest.app?.window?.singleInstance === true
     && await controlViewId(pkg.manifest.id, "show",
       pkg.manifest.app?.window?.storage as ViewStorage | undefined)) {
+    await noteLaunch(packageRoot(pkg.manifest)).catch(() => {});
     console.log(`Luon package: already running · ${pkg.manifest.id}`);
     return;
   }
@@ -521,7 +524,10 @@ export async function runLuonFile(args: Args) {
   await Promise.all(["assets", "cache", "data", "files"].map((name) => (
     mkdir(join(root, name), { mode: 0o700, recursive: true })
   )));
-  if (!standalone && args.view === "webview") await keepPackage(path, root);
+  if (!standalone && args.view === "webview") {
+    await keepPackage(path, root);
+    await noteLaunch(root);
+  }
   const restartApp = () => {
     const child = Bun.spawn(cliCommand(["file", join(root, "launch.luon"),
       "--webview"]), { stdin: "ignore", stdout: "inherit", stderr: "inherit",
