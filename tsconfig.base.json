@@ -19,5 +19,9 @@
       "bun"
     ]
   },
-  "files": []
+  "files": [],
+  "exclude": [
+    "luon-bun",
+    "**/node_modules"
+  ]
 }
